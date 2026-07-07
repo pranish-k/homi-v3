@@ -1,0 +1,20 @@
+{
+  "name": "@homi/worker",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "dev": "node -r ts-node/register -r dotenv/config src/main.ts",
+    "start": "node dist/main.js"
+  },
+  "dependencies": {
+    "@homi/db": "*",
+    "@homi/domain": "*",
+    "dotenv": "^16.4.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "ts-node": "^10.9.2"
+  }
+}
