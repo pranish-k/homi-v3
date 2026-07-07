@@ -1,8 +1,16 @@
 # HOMI v3 Progress
 
-**Last updated:** 2026-07-07 12:05 (Sprint 1 close)
+**Last updated:** 2026-07-07 17:20 (Sprint 2 close)
 **Phase:** R1 Money Core (weeks 1-12, committed scope)
-**Repo:** https://github.com/pranish-k/homi-v3 · tag `v0.1.0-sprint1` · CI: green
+**Repo:** https://github.com/pranish-k/homi-v3 · tag `v0.2.0-sprint2` · CI: green
+
+## Done (Sprint 2, 2026-07-07)
+
+- Better Auth: magic-link sign-in, cookie sessions and identities in our Postgres, Apple/Google config-gated behind env vars; dev `x-user-id` shim fully removed [HOMI-2]
+- Invite links: admin-created `homi.app/j/<token>`, token hashed at rest, atomic accept with returning-member reactivation [HOMI-8]
+- Rooms with weight basis points; room-weighted splits derived server-side, clients cannot supply weights [HOMI-10]
+- Settlement payments: idempotent single-sided recording, recipient-only dispute inside a server-enforced 72h window, disputed payments drop out of balances [HOMI-11]
+- Integration suite (10 tests) now authenticates through the real magic-link flow end to end
 
 ## Done (Sprint 1, 2026-07-07)
 
@@ -16,10 +24,9 @@
 
 ## Next steps and what to be mindful of
 
-1. **HOMI-2, Better Auth (Sprint 2 opener, retro commitment).**
-   The dev `x-user-id` shim must be removed behind one guard; no handler may ever read that header directly, and `DEV_AUTH_ENABLED` must never reach a deployed env.
-2. **HOMI-8 invites, HOMI-10 rooms, HOMI-11 payments + 72h dispute window.**
-   Payments must feed the existing single balance function, not a second computation.
+1. **Sprint 3 opener (retro action): realtime and the HOME snapshot (HOMI-17, HOMI-20).**
+   Realtime events are cache-invalidation hints only, never the data itself (H6).
+2. **Debt to carry consciously:** magic-link emails are only logged until HOMI-21 (email provider); legacy auth tables await the HOMI-22 contract migration; shared rooms (two occupants) are HOMI-23.
 3. **HOMI-14 Cloud Run deploy.**
    CI deploy jobs are placeholders gated on `GCP_WORKLOAD_IDENTITY_PROVIDER`; needs GCP project + Workload Identity setup.
 4. **Recurring bills (HOMI-13) carry the sharpest hazards:** unique key on (template_id, period) so re-runs never double-post rent (H4), and all scheduling in the house timezone server-side (H5).
