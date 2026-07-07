@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+
+jobs:
+  quality:
+    name: Typecheck, lint, unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-fund --no-audit
+      - name: Build workspace libraries
+        run: npm run build -w @homi/domain -w @homi/db
+      - run: npm run typecheck
+      - run: npm run lint
+      - name: Unit tests (money math property tests included)
+        run: npm test
+
+  integration:
+    name: Integration tests + migration check
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: homi
+          POSTGRES_PASSWORD: homi
+          POSTGRES_DB: homi
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U homi"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://homi:homi@localhost:5432/homi
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-fund --no-audit
+      - name: Build workspace libraries
+        run: npm run build -w @homi/domain -w @homi/db
+      - name: Migration drift check (schema and checked-in migrations must match)
+        run: |
+          npm run db:generate
+          git diff --exit-code packages/db/migrations
+      - name: Apply migrations (dry-run against ephemeral Postgres)
+        run: npm run db:migrate
+      - name: API integration tests (real Postgres)
+        run: npm run test:integration
+
+  build:
+    name: Build artifacts + container image
+    runs-on: ubuntu-latest
+    needs: [quality, integration]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-fund --no-audit
+      - run: npm run build -w @homi/domain -w @homi/db -w @homi/api -w @homi/worker
+      - name: Docker build
+        run: docker build -t homi-backend:${{ github.sha }} .
+
+  # HOMI-14: deploy to Cloud Run.
+  # main -> staging, tagged release (v*) -> prod, per spec 5.5.
+  # Activates once GCP Workload Identity Federation secrets are configured.
+  deploy-staging:
+    name: Deploy staging (HOMI-14 placeholder)
+    runs-on: ubuntu-latest
+    needs: [build]
+    if: github.ref == 'refs/heads/main' && vars.GCP_WORKLOAD_IDENTITY_PROVIDER != ''
+    steps:
+      - run: echo "Cloud Run deploy lands with HOMI-14 (gcloud run deploy homi-api-staging)"
+
+  deploy-prod:
+    name: Deploy prod (HOMI-14 placeholder)
+    runs-on: ubuntu-latest
+    needs: [build]
+    if: github.ref_type == 'tag' && vars.GCP_WORKLOAD_IDENTITY_PROVIDER != ''
+    steps:
+      - run: echo "Cloud Run deploy lands with HOMI-14 (gcloud run deploy homi-api)"
