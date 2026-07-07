@@ -8,7 +8,7 @@ import {
 import { and, eq, isNull } from 'drizzle-orm';
 import { schema, type Db } from '@homi/db';
 import { DB } from '../db.module';
-import type { AuthedRequest } from './dev-auth.guard';
+import type { AuthedRequest } from './auth.guard';
 
 /**
  * The single authorization layer (spec 5.5): every house-scoped route is

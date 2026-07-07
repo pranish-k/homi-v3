@@ -1,4 +1,10 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { schema, type Db } from '@homi/db';
 import {
@@ -72,6 +78,31 @@ export class LedgerService {
           throw new BadRequestException('Payer and all participants must be active house members');
         }
 
+        // HOMI-10: room-weighted splits are derived server-side from room
+        // assignments; clients cannot supply their own weights (spec 5.3:
+        // clients never compute state).
+        let weightsBp = input.weightsBp;
+        if (input.mode === 'room_weighted') {
+          if (weightsBp) {
+            throw new BadRequestException('room_weighted splits are derived from rooms; do not send weightsBp');
+          }
+          const assignments = await tx
+            .select({ userId: schema.houseMembers.userId, weightBp: schema.rooms.weightBp })
+            .from(schema.houseMembers)
+            .innerJoin(schema.rooms, eq(schema.rooms.id, schema.houseMembers.roomId))
+            .where(
+              and(
+                eq(schema.houseMembers.houseId, houseId),
+                inArray(schema.houseMembers.userId, input.participants),
+                isNull(schema.houseMembers.leftAt),
+              ),
+            );
+          if (assignments.length !== input.participants.length) {
+            throw new BadRequestException('Every participant needs a room for a room-weighted split');
+          }
+          weightsBp = Object.fromEntries(assignments.map((a) => [a.userId, a.weightBp]));
+        }
+
         let splits: Record<string, number>;
         try {
           splits = computeSplits({
@@ -80,7 +111,7 @@ export class LedgerService {
             mode: input.mode,
             participants: input.participants,
             exactCents: input.exactCents,
-            weightsBp: input.weightsBp,
+            weightsBp,
           });
         } catch (err) {
           if (err instanceof SplitError) throw new BadRequestException(err.message);
@@ -136,6 +167,142 @@ export class LedgerService {
       }
       throw err;
     }
+  }
+
+  /**
+   * HOMI-11: settlement is single-sided (spec, Pillar 1) - the payer
+   * records it in one tap and a 72-hour dispute window protects the
+   * recipient, so nothing stalls waiting for confirmation. Idempotent
+   * and transactional like every money mutation (H1).
+   */
+  async recordPayment(
+    houseId: string,
+    userId: string,
+    idempotencyKey: string,
+    input: { toUser: string; amountCents: number; currency?: string; method?: string },
+  ): Promise<{ status: number; body: unknown }> {
+    const replayed = await this.findStoredResponse(idempotencyKey);
+    if (replayed) return replayed;
+    if (input.toUser === userId) {
+      throw new BadRequestException('You cannot record a payment to yourself');
+    }
+
+    try {
+      return await this.db.transaction(async (tx) => {
+        const [house] = await tx
+          .select()
+          .from(schema.houses)
+          .where(eq(schema.houses.id, houseId));
+        if (!house) throw new BadRequestException('House not found');
+
+        const counterpart = await tx
+          .select({ userId: schema.houseMembers.userId })
+          .from(schema.houseMembers)
+          .where(
+            and(
+              eq(schema.houseMembers.houseId, houseId),
+              eq(schema.houseMembers.userId, input.toUser),
+              isNull(schema.houseMembers.leftAt),
+            ),
+          );
+        if (counterpart.length === 0) {
+          throw new BadRequestException('Recipient must be an active house member');
+        }
+
+        const [payment] = await tx
+          .insert(schema.payments)
+          .values({
+            houseId,
+            fromUser: userId,
+            toUser: input.toUser,
+            amountCents: input.amountCents,
+            currency: input.currency ?? house.currency,
+            method: input.method,
+          })
+          .returning();
+        if (!payment) throw new Error('insert returned no row');
+
+        await tx.insert(schema.activityEvents).values({
+          houseId,
+          actorId: userId,
+          type: 'payment.recorded',
+          entityType: 'payment',
+          entityId: payment.id,
+          payload: { amountCents: payment.amountCents, toUser: payment.toUser },
+        });
+
+        const body = { payment };
+        await tx.insert(schema.idempotencyKeys).values({
+          key: idempotencyKey,
+          userId,
+          endpoint: 'POST /v1/houses/:houseId/payments',
+          responseStatus: 201,
+          responseBody: body,
+        });
+        return { status: 201, body };
+      });
+    } catch (err) {
+      if (isUniqueViolation(err)) {
+        const stored = await this.findStoredResponse(idempotencyKey);
+        if (stored) return stored;
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Only the recipient can dispute, only within 72 hours, and the state
+   * transition is guarded in SQL (H2): concurrent disputes or a racing
+   * resolve cannot double-fire.
+   */
+  async disputePayment(paymentId: string, userId: string) {
+    const DISPUTE_WINDOW_MS = 72 * 60 * 60 * 1000;
+    return this.db.transaction(async (tx) => {
+      const [payment] = await tx
+        .select()
+        .from(schema.payments)
+        .where(eq(schema.payments.id, paymentId))
+        .for('update');
+      if (!payment) throw new NotFoundException('Payment not found');
+
+      const [membership] = await tx
+        .select({ userId: schema.houseMembers.userId })
+        .from(schema.houseMembers)
+        .where(
+          and(
+            eq(schema.houseMembers.houseId, payment.houseId),
+            eq(schema.houseMembers.userId, userId),
+            isNull(schema.houseMembers.leftAt),
+          ),
+        );
+      if (!membership) throw new NotFoundException('Payment not found');
+      if (payment.toUser !== userId) {
+        throw new ForbiddenException('Only the payment recipient can dispute it');
+      }
+      if (payment.status !== 'recorded') {
+        throw new BadRequestException('This payment is not open for dispute');
+      }
+      if (Date.now() - payment.createdAt.getTime() > DISPUTE_WINDOW_MS) {
+        throw new BadRequestException('The 72-hour dispute window has closed');
+      }
+
+      const updated = await tx
+        .update(schema.payments)
+        .set({ status: 'disputed', disputedAt: new Date() })
+        .where(and(eq(schema.payments.id, paymentId), eq(schema.payments.status, 'recorded')))
+        .returning();
+      const disputedPayment = updated[0];
+      if (!disputedPayment) throw new BadRequestException('This payment is not open for dispute');
+
+      await tx.insert(schema.activityEvents).values({
+        houseId: payment.houseId,
+        actorId: userId,
+        type: 'payment.disputed',
+        entityType: 'payment',
+        entityId: paymentId,
+      });
+      return { payment: disputedPayment };
+    });
   }
 
   /**

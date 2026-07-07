@@ -6,165 +6,288 @@ import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AppModule } from '../src/app.module';
 import { PG_POOL } from '../src/db.module';
+import { lastMagicLink } from '../src/auth/auth.instance';
+import { setupApp } from '../src/setup';
 import type { Pool } from 'pg';
 
 if (!process.env.DATABASE_URL) {
   throw new Error('DATABASE_URL must be set for integration tests (see docker-compose.yml)');
 }
-process.env.DEV_AUTH_ENABLED = 'true';
 
-const ana = randomUUID();
-const ben = randomUUID();
-const stranger = randomUUID();
+interface Session {
+  cookie: string;
+  userId: string;
+}
 
-const asUser = (userId: string) => ({ 'x-user-id': userId, 'x-user-name': 'Test User' });
-
-describe('ledger walking skeleton (HOMI-3, HOMI-6, HOMI-7)', () => {
+describe('R1 money core (Sprints 1-2)', () => {
   let app: INestApplication;
   let http: ReturnType<INestApplication['getHttpServer']>;
+  let pool: Pool;
+  let ana: Session;
+  let ben: Session;
+  let mallory: Session;
   let houseId: string;
+
+  /** HOMI-2: the only way in is the real magic-link flow. */
+  async function signIn(email: string): Promise<Session> {
+    await request(http)
+      .post('/api/auth/sign-in/magic-link')
+      .send({ email })
+      .expect(200);
+    const url = lastMagicLink.get(email);
+    if (!url) throw new Error(`no magic link captured for ${email}`);
+    const token = new URL(url).searchParams.get('token');
+    const verify = await request(http).get(`/api/auth/magic-link/verify?token=${token}`);
+    expect(verify.status).toBeLessThan(400);
+    const setCookies = verify.headers['set-cookie'];
+    if (!setCookies) throw new Error('verify did not set a session cookie');
+    const cookie = (Array.isArray(setCookies) ? setCookies : [setCookies])
+      .map((c: string) => c.split(';')[0])
+      .join('; ');
+    const me = await request(http).get('/api/auth/get-session').set('Cookie', cookie).expect(200);
+    return { cookie, userId: me.body.user.id };
+  }
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
-    app = moduleRef.createNestApplication();
+    app = moduleRef.createNestApplication(undefined, { bodyParser: false });
+    setupApp(app);
     await app.init();
     http = app.getHttpServer();
+    pool = app.get<Pool>(PG_POOL);
+
+    const run = randomUUID().slice(0, 8);
+    ana = await signIn(`ana-${run}@example.com`);
+    ben = await signIn(`ben-${run}@example.com`);
+    mallory = await signIn(`mallory-${run}@example.com`);
   });
 
   afterAll(async () => {
-    const pool = app.get<Pool>(PG_POOL);
     await app.close();
     await pool.end();
   });
 
-  it('creates a house and adds a member', async () => {
+  it('rejects unauthenticated requests', async () => {
+    await request(http).post('/v1/houses').send({ name: 'X', timezone: 'UTC' }).expect(401);
+  });
+
+  it('creates a house and joins a roommate via invite link (HOMI-3, HOMI-8)', async () => {
     const res = await request(http)
       .post('/v1/houses')
-      .set(asUser(ana))
+      .set('Cookie', ana.cookie)
       .send({ name: 'Maple St', timezone: 'America/New_York', currency: 'USD' })
       .expect(201);
     houseId = res.body.id;
-    expect(houseId).toBeTruthy();
 
-    await request(http)
-      .post(`/v1/houses/${houseId}/members`)
-      .set(asUser(ana))
-      .send({ userId: ben, displayName: 'Ben' })
+    const invite = await request(http)
+      .post(`/v1/houses/${houseId}/invites`)
+      .set('Cookie', ana.cookie)
       .expect(201);
+    expect(invite.body.url).toMatch(/\/j\//);
+    const token = invite.body.url.split('/j/')[1];
+
+    const accept = await request(http)
+      .post(`/v1/invites/${token}/accept`)
+      .set('Cookie', ben.cookie)
+      .expect(201);
+    expect(accept.body).toEqual({ houseId, alreadyMember: false });
+
+    // re-accepting is a no-op, not an error
+    const again = await request(http)
+      .post(`/v1/invites/${token}/accept`)
+      .set('Cookie', ben.cookie)
+      .expect(201);
+    expect(again.body.alreadyMember).toBe(true);
   });
 
-  it('rejects money mutations without an Idempotency-Key', async () => {
+  it('rejects invalid invite tokens and non-admin invite creation', async () => {
+    await request(http)
+      .post('/v1/invites/not-a-real-token/accept')
+      .set('Cookie', mallory.cookie)
+      .expect(400);
+    await request(http)
+      .post(`/v1/houses/${houseId}/invites`)
+      .set('Cookie', ben.cookie)
+      .expect(403);
+  });
+
+  it('configures rooms with weights summing to 10000 bp (HOMI-10)', async () => {
+    await request(http)
+      .put(`/v1/houses/${houseId}/rooms`)
+      .set('Cookie', ana.cookie)
+      .send({
+        rooms: [
+          { name: 'Master', weightBp: 6000, userId: ana.userId },
+          { name: 'Small room', weightBp: 3000, userId: ben.userId },
+        ],
+      })
+      .expect(400); // 9000 bp, must be rejected
+
+    await request(http)
+      .put(`/v1/houses/${houseId}/rooms`)
+      .set('Cookie', ana.cookie)
+      .send({
+        rooms: [
+          { name: 'Master', weightBp: 6000, userId: ana.userId },
+          { name: 'Small room', weightBp: 4000, userId: ben.userId },
+        ],
+      })
+      .expect(200);
+  });
+
+  it('creates a room-weighted expense with server-derived weights (HOMI-6, HOMI-10)', async () => {
+    const res = await request(http)
+      .post(`/v1/houses/${houseId}/expenses`)
+      .set('Cookie', ana.cookie)
+      .set('Idempotency-Key', randomUUID())
+      .send({
+        description: 'Rent',
+        amountCents: 200000,
+        paidBy: ana.userId,
+        mode: 'room_weighted',
+        participants: [ana.userId, ben.userId],
+      })
+      .expect(201);
+    expect(res.body.splits[ana.userId]).toBe(120000);
+    expect(res.body.splits[ben.userId]).toBe(80000);
+
+    // clients may not supply their own weights in room_weighted mode
     await request(http)
       .post(`/v1/houses/${houseId}/expenses`)
-      .set(asUser(ana))
+      .set('Cookie', ana.cookie)
+      .set('Idempotency-Key', randomUUID())
       .send({
-        description: 'Groceries',
-        amountCents: 5000,
-        paidBy: ana,
-        mode: 'equal',
-        participants: [ana, ben],
+        description: 'Sneaky weights',
+        amountCents: 1000,
+        paidBy: ana.userId,
+        mode: 'room_weighted',
+        participants: [ana.userId, ben.userId],
+        weightsBp: { [ana.userId]: 1, [ben.userId]: 9999 },
       })
       .expect(400);
   });
 
-  it('creates an equal-split expense with exact cent math (H3)', async () => {
-    const key = randomUUID();
-    const res = await request(http)
-      .post(`/v1/houses/${houseId}/expenses`)
-      .set(asUser(ana))
-      .set('Idempotency-Key', key)
-      .send({
-        description: 'Pizza night',
-        amountCents: 10000,
-        paidBy: ana,
-        mode: 'equal',
-        participants: [ana, ben],
-      })
-      .expect(201);
-    expect(res.body.splits[ana] + res.body.splits[ben]).toBe(10000);
-  });
-
-  it('replays the stored response on idempotent retry, never double-posting (H1)', async () => {
+  it('replays idempotent expense retries without double-posting (H1)', async () => {
     const key = randomUUID();
     const payload = {
-      description: 'Rent',
-      amountCents: 200000,
-      paidBy: ana,
+      description: 'Pizza',
+      amountCents: 10000,
+      paidBy: ana.userId,
       mode: 'equal' as const,
-      participants: [ana, ben],
+      participants: [ana.userId, ben.userId],
     };
     const first = await request(http)
       .post(`/v1/houses/${houseId}/expenses`)
-      .set(asUser(ana))
+      .set('Cookie', ana.cookie)
       .set('Idempotency-Key', key)
       .send(payload)
       .expect(201);
     const retry = await request(http)
       .post(`/v1/houses/${houseId}/expenses`)
-      .set(asUser(ana))
+      .set('Cookie', ana.cookie)
       .set('Idempotency-Key', key)
       .send(payload)
       .expect(201);
     expect(retry.body.expense.id).toBe(first.body.expense.id);
+  });
+
+  it('records a settlement payment and reflects it in balances (HOMI-7, HOMI-11)', async () => {
+    // so far: ben owes rent 80000 + pizza 5000 = 85000
+    await request(http)
+      .post(`/v1/houses/${houseId}/payments`)
+      .set('Cookie', ben.cookie)
+      .set('Idempotency-Key', randomUUID())
+      .send({ toUser: ana.userId, amountCents: 50000, method: 'venmo' })
+      .expect(201);
 
     const balances = await request(http)
       .get(`/v1/houses/${houseId}/balances`)
-      .set(asUser(ben))
+      .set('Cookie', ben.cookie)
       .expect(200);
-    // pizza 10000/2 + rent 200000/2 = 105000 owed by ben, not 205000
     const pair = balances.body.pairwise.find(
-      (p: { from: string; to: string }) => p.from === ben && p.to === ana,
+      (p: { from: string }) => p.from === ben.userId,
     );
-    expect(pair.amountCents).toBe(105000);
+    expect(pair.to).toBe(ana.userId);
+    expect(pair.amountCents).toBe(35000);
+  });
+
+  it('lets only the recipient dispute, only inside 72 hours (HOMI-11)', async () => {
+    const created = await request(http)
+      .post(`/v1/houses/${houseId}/payments`)
+      .set('Cookie', ben.cookie)
+      .set('Idempotency-Key', randomUUID())
+      .send({ toUser: ana.userId, amountCents: 1000 })
+      .expect(201);
+    const paymentId = created.body.payment.id;
+
+    // the payer cannot dispute their own payment
+    await request(http)
+      .post(`/v1/payments/${paymentId}/dispute`)
+      .set('Cookie', ben.cookie)
+      .expect(403);
+    // an outsider sees nothing
+    await request(http)
+      .post(`/v1/payments/${paymentId}/dispute`)
+      .set('Cookie', mallory.cookie)
+      .expect(404);
+
+    // recipient disputes; disputed payments drop out of balances
+    await request(http)
+      .post(`/v1/payments/${paymentId}/dispute`)
+      .set('Cookie', ana.cookie)
+      .expect(201);
+    await request(http)
+      .post(`/v1/payments/${paymentId}/dispute`)
+      .set('Cookie', ana.cookie)
+      .expect(400); // already disputed
+
+    // a payment older than 72h is closed for dispute
+    const stale = await request(http)
+      .post(`/v1/houses/${houseId}/payments`)
+      .set('Cookie', ben.cookie)
+      .set('Idempotency-Key', randomUUID())
+      .send({ toUser: ana.userId, amountCents: 2000 })
+      .expect(201);
+    await pool.query(`UPDATE payments SET created_at = now() - interval '73 hours' WHERE id = $1`, [
+      stale.body.payment.id,
+    ]);
+    await request(http)
+      .post(`/v1/payments/${stale.body.payment.id}/dispute`)
+      .set('Cookie', ana.cookie)
+      .expect(400);
   });
 
   it('rejects splits whose exact amounts do not sum to the total (invariant 2)', async () => {
     await request(http)
       .post(`/v1/houses/${houseId}/expenses`)
-      .set(asUser(ana))
+      .set('Cookie', ana.cookie)
       .set('Idempotency-Key', randomUUID())
       .send({
         description: 'Utilities',
         amountCents: 9000,
-        paidBy: ana,
+        paidBy: ana.userId,
         mode: 'exact',
-        participants: [ana, ben],
-        exactCents: { [ana]: 4000, [ben]: 4999 },
+        participants: [ana.userId, ben.userId],
+        exactCents: { [ana.userId]: 4000, [ben.userId]: 4999 },
       })
       .expect(400);
   });
 
-  it('rejects participants who are not house members', async () => {
-    await request(http)
-      .post(`/v1/houses/${houseId}/expenses`)
-      .set(asUser(ana))
-      .set('Idempotency-Key', randomUUID())
-      .send({
-        description: 'Sneaky',
-        amountCents: 1000,
-        paidBy: ana,
-        mode: 'equal',
-        participants: [ana, stranger],
-      })
-      .expect(400);
-  });
-
-  it('denies cross-house access (spec 5.6 authorization test)', async () => {
+  it('denies cross-house access on every surface (spec 5.6)', async () => {
     await request(http)
       .get(`/v1/houses/${houseId}/balances`)
-      .set(asUser(stranger))
+      .set('Cookie', mallory.cookie)
       .expect(403);
     await request(http)
-      .post(`/v1/houses/${houseId}/expenses`)
-      .set(asUser(stranger))
+      .post(`/v1/houses/${houseId}/payments`)
+      .set('Cookie', mallory.cookie)
       .set('Idempotency-Key', randomUUID())
-      .send({
-        description: 'Not my house',
-        amountCents: 1000,
-        paidBy: stranger,
-        mode: 'equal',
-        participants: [stranger],
-      })
+      .send({ toUser: ana.userId, amountCents: 100 })
+      .expect(403);
+    await request(http)
+      .put(`/v1/houses/${houseId}/rooms`)
+      .set('Cookie', mallory.cookie)
+      .send({ rooms: [{ name: 'X', weightBp: 10000, userId: mallory.userId }] })
       .expect(403);
   });
 });

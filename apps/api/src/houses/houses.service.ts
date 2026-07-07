@@ -1,5 +1,4 @@
-import { BadRequestException, ForbiddenException, Inject, Injectable } from '@nestjs/common';
-import { and, eq, isNull } from 'drizzle-orm';
+import { Inject, Injectable } from '@nestjs/common';
 import { schema, type Db } from '@homi/db';
 import { DB } from '../db.module';
 
@@ -33,50 +32,6 @@ export class HousesService {
         entityId: house.id,
       });
       return house;
-    });
-  }
-
-  /**
-   * Interim member management until invite links (HOMI-8) and
-   * placeholder claiming (HOMI-9) land. Admin-only.
-   */
-  async addMember(
-    houseId: string,
-    actorId: string,
-    input: { userId: string; displayName?: string },
-  ) {
-    return this.db.transaction(async (tx) => {
-      const [actor] = await tx
-        .select({ role: schema.houseMembers.role })
-        .from(schema.houseMembers)
-        .where(
-          and(
-            eq(schema.houseMembers.houseId, houseId),
-            eq(schema.houseMembers.userId, actorId),
-            isNull(schema.houseMembers.leftAt),
-          ),
-        );
-      if (actor?.role !== 'admin') {
-        throw new ForbiddenException('Only house admins can add members');
-      }
-      await tx
-        .insert(schema.users)
-        .values({ id: input.userId, name: input.displayName ?? 'Roommate' })
-        .onConflictDoNothing({ target: schema.users.id });
-      const [member] = await tx
-        .insert(schema.houseMembers)
-        .values({ houseId, userId: input.userId, displayName: input.displayName })
-        .onConflictDoNothing()
-        .returning();
-      if (!member) throw new BadRequestException('Already a member of this house');
-      await tx.insert(schema.activityEvents).values({
-        houseId,
-        actorId,
-        type: 'member.added',
-        entityType: 'member',
-        entityId: input.userId,
-      });
-      return member;
     });
   }
 }
