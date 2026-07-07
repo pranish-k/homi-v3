@@ -11,19 +11,25 @@ import {
 
 export const users = pgTable('users', {
   id: uuid('id').primaryKey().defaultRandom(),
-  email: text('email').unique(),
+  email: text('email').unique(), // nullable: placeholder members (HOMI-9) have no email
   name: text('name').notNull(),
-  avatarPath: text('avatar_path'),
+  emailVerified: boolean('email_verified').notNull().default(false),
+  image: text('image'),
+  avatarPath: text('avatar_path'), // legacy, superseded by image; dropped in HOMI-22
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
 });
 
+// Legacy hand-rolled auth tables (Sprint 1). Unused since HOMI-2; kept
+// through the expand phase (H7) and dropped in the HOMI-22 contract
+// migration.
 export const authIdentities = pgTable('auth_identities', {
   id: uuid('id').primaryKey().defaultRandom(),
   userId: uuid('user_id')
     .notNull()
     .references(() => users.id),
-  provider: text('provider').notNull(), // apple | google | magic_link
+  provider: text('provider').notNull(),
   providerUid: text('provider_uid').notNull(),
 });
 
@@ -36,6 +42,48 @@ export const sessions = pgTable('sessions', {
   device: text('device'),
   expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
   revokedAt: timestamp('revoked_at', { withTimezone: true }),
+});
+
+// Better Auth tables (HOMI-2, D3). Better Auth owns these rows; sessions
+// and identities live in our Postgres so we keep full data ownership.
+export const authSessions = pgTable('auth_sessions', {
+  id: uuid('id').primaryKey(),
+  userId: uuid('user_id')
+    .notNull()
+    .references(() => users.id),
+  token: text('token').notNull().unique(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  ipAddress: text('ip_address'),
+  userAgent: text('user_agent'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const authAccounts = pgTable('auth_accounts', {
+  id: uuid('id').primaryKey(),
+  userId: uuid('user_id')
+    .notNull()
+    .references(() => users.id),
+  accountId: text('account_id').notNull(),
+  providerId: text('provider_id').notNull(), // google | apple | magic-link credential
+  accessToken: text('access_token'),
+  refreshToken: text('refresh_token'),
+  idToken: text('id_token'),
+  accessTokenExpiresAt: timestamp('access_token_expires_at', { withTimezone: true }),
+  refreshTokenExpiresAt: timestamp('refresh_token_expires_at', { withTimezone: true }),
+  scope: text('scope'),
+  password: text('password'), // unused (no passwords, spec 5.2); required by Better Auth schema
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const authVerifications = pgTable('auth_verifications', {
+  id: uuid('id').primaryKey(),
+  identifier: text('identifier').notNull(),
+  value: text('value').notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const houses = pgTable('houses', {

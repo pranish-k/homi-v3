@@ -8,6 +8,13 @@
       "when": 1783437995914,
       "tag": "0000_r1_core",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1783458204557,
+      "tag": "0001_homi2_better_auth",
+      "breakpoints": true
     }
   ]
 }
