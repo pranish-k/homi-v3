@@ -53,6 +53,10 @@ Priority order within each epic is top to bottom.
 | HOMI-21 | As a user, magic-link and notification emails are delivered via a transactional email provider | 3 | Backlog |
 | HOMI-22 | As a developer, the legacy hand-rolled auth tables are dropped (contract phase of the HOMI-2 migration, H7) | 1 | Backlog |
 | HOMI-23 | As a couple sharing a room, our room's weight splits across both occupants | 2 | Backlog |
+| HOMI-24 | As an operator, auth and invite endpoints are rate limited (spec 5.5; magic-link send is an unauthenticated email loop) | 3 | Backlog (review M6) |
+| HOMI-25 | As the system, getBalances reads expenses and payments in one consistent snapshot instead of two statements | 2 | Backlog (review M3) |
+| HOMI-26 | As an operator, idempotency keys are pruned by a worker job after a retention window | 2 | Backlog (review M7) |
+| HOMI-27 | As an operator, /healthz verifies DB connectivity so a wedged pool cannot report healthy | 1 | Backlog (review LOW) |
 
 ## Release gate (R1 to R2)
 

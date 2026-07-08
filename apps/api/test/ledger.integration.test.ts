@@ -63,8 +63,8 @@ describe('R1 money core (Sprints 1-2)', () => {
   });
 
   afterAll(async () => {
+    // app.close() drains the shared pool via DbModule.onApplicationShutdown
     await app.close();
-    await pool.end();
   });
 
   it('rejects unauthenticated requests', async () => {
@@ -167,6 +167,127 @@ describe('R1 money core (Sprints 1-2)', () => {
       .expect(400);
   });
 
+  it('scopes idempotency keys to the caller: another user reusing a key executes fresh, never sees the stored response (review C1)', async () => {
+    const key = randomUUID();
+    const anaExpense = await request(http)
+      .post(`/v1/houses/${houseId}/expenses`)
+      .set('Cookie', ana.cookie)
+      .set('Idempotency-Key', key)
+      .send({
+        description: 'Ana groceries',
+        amountCents: 3000,
+        paidBy: ana.userId,
+        mode: 'equal',
+        participants: [ana.userId, ben.userId],
+      })
+      .expect(201);
+
+    const benExpense = await request(http)
+      .post(`/v1/houses/${houseId}/expenses`)
+      .set('Cookie', ben.cookie)
+      .set('Idempotency-Key', key)
+      .send({
+        description: 'Ben cleaning supplies',
+        amountCents: 2000,
+        paidBy: ben.userId,
+        mode: 'equal',
+        participants: [ana.userId, ben.userId],
+      })
+      .expect(201);
+    expect(benExpense.body.expense.id).not.toBe(anaExpense.body.expense.id);
+    expect(benExpense.body.expense.description).toBe('Ben cleaning supplies');
+  });
+
+  it('rejects an idempotency key reused with a different body (review M4)', async () => {
+    const key = randomUUID();
+    const base = {
+      description: 'Internet',
+      amountCents: 6000,
+      paidBy: ana.userId,
+      mode: 'equal' as const,
+      participants: [ana.userId, ben.userId],
+    };
+    await request(http)
+      .post(`/v1/houses/${houseId}/expenses`)
+      .set('Cookie', ana.cookie)
+      .set('Idempotency-Key', key)
+      .send(base)
+      .expect(201);
+    await request(http)
+      .post(`/v1/houses/${houseId}/expenses`)
+      .set('Cookie', ana.cookie)
+      .set('Idempotency-Key', key)
+      .send({ ...base, amountCents: 9999 })
+      .expect(409);
+  });
+
+  it('keeps the ledger single-currency (review C2)', async () => {
+    await request(http)
+      .post(`/v1/houses/${houseId}/expenses`)
+      .set('Cookie', ana.cookie)
+      .set('Idempotency-Key', randomUUID())
+      .send({
+        description: 'Euro mischief',
+        amountCents: 1000,
+        currency: 'EUR',
+        paidBy: ana.userId,
+        mode: 'equal',
+        participants: [ana.userId, ben.userId],
+      })
+      .expect(400);
+    await request(http)
+      .post(`/v1/houses/${houseId}/payments`)
+      .set('Cookie', ben.cookie)
+      .set('Idempotency-Key', randomUUID())
+      .send({ toUser: ana.userId, amountCents: 1000, currency: 'JPY' })
+      .expect(400);
+  });
+
+  it('rejects amounts beyond the safe bound (review H3)', async () => {
+    await request(http)
+      .post(`/v1/houses/${houseId}/payments`)
+      .set('Cookie', ben.cookie)
+      .set('Idempotency-Key', randomUUID())
+      .send({ toUser: ana.userId, amountCents: 20_000_000_000 }) // over the $100M-in-cents bound
+      .expect(400);
+  });
+
+  it('survives concurrent duplicate submissions: same key in parallel posts exactly once (H1 race)', async () => {
+    const key = randomUUID();
+    const payload = {
+      description: 'Racing rent',
+      amountCents: 50000,
+      paidBy: ana.userId,
+      mode: 'equal' as const,
+      participants: [ana.userId, ben.userId],
+    };
+    const send = () =>
+      request(http)
+        .post(`/v1/houses/${houseId}/expenses`)
+        .set('Cookie', ana.cookie)
+        .set('Idempotency-Key', key)
+        .send(payload);
+    const results = await Promise.all([send(), send(), send()]);
+    for (const r of results) expect(r.status).toBe(201);
+    const ids = new Set(results.map((r) => r.body.expense.id));
+    expect(ids.size).toBe(1);
+    const count = await pool.query(
+      `SELECT count(*)::int AS n FROM expenses WHERE description = 'Racing rent' AND house_id = $1`,
+      [houseId],
+    );
+    expect(count.rows[0].n).toBe(1);
+  });
+
+  it('holds invariant 2 in the database: splits sum to the expense total', async () => {
+    const rows = await pool.query(`
+      SELECT e.id FROM expenses e
+      JOIN expense_splits s ON s.expense_id = e.id
+      GROUP BY e.id, e.amount_cents
+      HAVING SUM(s.amount_cents) <> e.amount_cents
+    `);
+    expect(rows.rowCount).toBe(0);
+  });
+
   it('replays idempotent expense retries without double-posting (H1)', async () => {
     const key = randomUUID();
     const payload = {
@@ -192,7 +313,8 @@ describe('R1 money core (Sprints 1-2)', () => {
   });
 
   it('records a settlement payment and reflects it in balances (HOMI-7, HOMI-11)', async () => {
-    // so far: ben owes rent 80000 + pizza 5000 = 85000
+    // ben's debt so far: rent 80000 + groceries 1500 - cleaning 1000
+    // + internet 3000 + racing rent 25000 + pizza 5000 = 113500
     await request(http)
       .post(`/v1/houses/${houseId}/payments`)
       .set('Cookie', ben.cookie)
@@ -208,7 +330,7 @@ describe('R1 money core (Sprints 1-2)', () => {
       (p: { from: string }) => p.from === ben.userId,
     );
     expect(pair.to).toBe(ana.userId);
-    expect(pair.amountCents).toBe(35000);
+    expect(pair.amountCents).toBe(63500); // 113500 - 50000
   });
 
   it('lets only the recipient dispute, only inside 72 hours (HOMI-11)', async () => {
@@ -232,6 +354,10 @@ describe('R1 money core (Sprints 1-2)', () => {
       .expect(404);
 
     // recipient disputes; disputed payments drop out of balances
+    const before = await request(http)
+      .get(`/v1/houses/${houseId}/balances`)
+      .set('Cookie', ana.cookie)
+      .expect(200);
     await request(http)
       .post(`/v1/payments/${paymentId}/dispute`)
       .set('Cookie', ana.cookie)
@@ -240,6 +366,13 @@ describe('R1 money core (Sprints 1-2)', () => {
       .post(`/v1/payments/${paymentId}/dispute`)
       .set('Cookie', ana.cookie)
       .expect(400); // already disputed
+    const after = await request(http)
+      .get(`/v1/houses/${houseId}/balances`)
+      .set('Cookie', ana.cookie)
+      .expect(200);
+    const owed = (b: typeof after) =>
+      b.body.pairwise.find((p: { from: string }) => p.from === ben.userId)?.amountCents ?? 0;
+    expect(owed(after)).toBe(owed(before) + 1000); // the disputed 1000 no longer counts as paid
 
     // a payment older than 72h is closed for dispute
     const stale = await request(http)

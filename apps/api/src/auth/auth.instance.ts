@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { magicLink } from 'better-auth/plugins';
-import { createDb, createPool, schema } from '@homi/db';
+import { createDb, schema } from '@homi/db';
+import { getSharedPool } from '../db.pool';
 
 /**
  * Better Auth (HOMI-2, decision D3): auth library runs inside our
@@ -17,9 +18,13 @@ import { createDb, createPool, schema } from '@homi/db';
 export const lastMagicLink = new Map<string, string>();
 
 function buildAuth() {
-  const databaseUrl = process.env.DATABASE_URL;
-  if (!databaseUrl) throw new Error('DATABASE_URL is not set');
-  const db = createDb(createPool(databaseUrl));
+  const isProduction = process.env.NODE_ENV === 'production';
+  const secret = process.env.BETTER_AUTH_SECRET;
+  if (isProduction && !secret) {
+    // a fallback secret in prod means anyone with the repo can forge sessions
+    throw new Error('BETTER_AUTH_SECRET must be set in production');
+  }
+  const db = createDb(getSharedPool());
 
   const socialProviders: Record<string, { clientId: string; clientSecret: string }> = {};
   if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
@@ -31,7 +36,7 @@ function buildAuth() {
 
   return betterAuth({
     baseURL: process.env.BETTER_AUTH_URL ?? 'http://localhost:3000',
-    secret: process.env.BETTER_AUTH_SECRET ?? 'homi-dev-secret-do-not-use-in-prod',
+    secret: secret ?? 'homi-dev-secret-do-not-use-in-prod',
     database: drizzleAdapter(db, {
       provider: 'pg',
       schema: {
@@ -49,9 +54,12 @@ function buildAuth() {
     plugins: [
       magicLink({
         sendMagicLink: async ({ email, url }) => {
-          if (process.env.NODE_ENV !== 'production') {
-            lastMagicLink.set(email, url);
+          if (isProduction) {
+            // never log sign-in credentials; fail loudly until email
+            // delivery exists (HOMI-21)
+            throw new Error('Email delivery is not configured (HOMI-21)');
           }
+          lastMagicLink.set(email, url);
           console.log(`[auth] magic link for ${email}: ${url}`);
         },
       }),

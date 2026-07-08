@@ -15,6 +15,13 @@
       "when": 1783458204557,
       "tag": "0001_homi2_better_auth",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1783483047760,
+      "tag": "0002_review_hardening",
+      "breakpoints": true
     }
   ]
 }

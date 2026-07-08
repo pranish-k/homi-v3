@@ -19,22 +19,29 @@ import { LedgerService } from './ledger.service';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// H3 bound: bigint columns hold more than Number can represent safely;
+// zod's .int() alone accepts 1e100. $100M in cents is a generous ceiling
+// for a household ledger and keeps every stored amount a safe integer.
+const MAX_AMOUNT_CENTS = 10_000_000_000;
+
 const createExpenseSchema = z.object({
   description: z.string().min(1).max(200),
-  amountCents: z.number().int().positive(),
+  amountCents: z.number().int().positive().max(MAX_AMOUNT_CENTS),
   currency: z.string().length(3).toUpperCase().optional(),
   paidBy: z.string().uuid(),
   category: z.string().max(50).optional(),
   isStaple: z.boolean().optional(),
   mode: z.enum(['equal', 'exact', 'percent', 'room_weighted']),
   participants: z.array(z.string().uuid()).min(1).max(50),
-  exactCents: z.record(z.string().uuid(), z.number().int().nonnegative()).optional(),
-  weightsBp: z.record(z.string().uuid(), z.number().int().nonnegative()).optional(),
+  exactCents: z
+    .record(z.string().uuid(), z.number().int().nonnegative().max(MAX_AMOUNT_CENTS))
+    .optional(),
+  weightsBp: z.record(z.string().uuid(), z.number().int().nonnegative().max(10000)).optional(),
 });
 
 const recordPaymentSchema = z.object({
   toUser: z.string().uuid(),
-  amountCents: z.number().int().positive(),
+  amountCents: z.number().int().positive().max(MAX_AMOUNT_CENTS),
   currency: z.string().length(3).toUpperCase().optional(),
   method: z.enum(['venmo', 'zelle', 'cash_app', 'cash', 'other']).optional(),
 });

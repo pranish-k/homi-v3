@@ -80,10 +80,11 @@ export class InvitesService {
         return { houseId: invite.houseId, alreadyMember: true };
       }
       if (existing) {
-        // returning member (Y4): reactivate; ledger history stays intact
+        // returning member (Y4): reactivate with plain member role (an
+        // old admin role must not survive removal); ledger history stays
         await tx
           .update(schema.houseMembers)
-          .set({ leftAt: null, joinedAt: new Date() })
+          .set({ leftAt: null, joinedAt: new Date(), role: 'member' })
           .where(
             and(
               eq(schema.houseMembers.houseId, invite.houseId),
@@ -91,7 +92,16 @@ export class InvitesService {
             ),
           );
       } else {
-        await tx.insert(schema.houseMembers).values({ houseId: invite.houseId, userId });
+        // onConflictDoNothing: a concurrent accept via a different invite
+        // may win the insert; losing quietly is the correct outcome
+        const inserted = await tx
+          .insert(schema.houseMembers)
+          .values({ houseId: invite.houseId, userId })
+          .onConflictDoNothing()
+          .returning();
+        if (inserted.length === 0) {
+          return { houseId: invite.houseId, alreadyMember: true };
+        }
       }
       await tx
         .update(schema.invites)

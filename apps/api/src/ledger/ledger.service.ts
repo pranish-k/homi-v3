@@ -1,10 +1,12 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { hashRequest } from '../lib/request-hash';
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { schema, type Db } from '@homi/db';
 import {
@@ -52,7 +54,9 @@ export class LedgerService {
     idempotencyKey: string,
     input: CreateExpenseInput,
   ): Promise<{ status: number; body: unknown }> {
-    const replayed = await this.findStoredResponse(idempotencyKey);
+    const endpoint = 'POST /v1/houses/:houseId/expenses';
+    const requestHash = hashRequest({ houseId, input });
+    const replayed = await this.findStoredResponse(idempotencyKey, userId, endpoint, requestHash);
     if (replayed) return replayed;
 
     try {
@@ -62,6 +66,11 @@ export class LedgerService {
           .from(schema.houses)
           .where(eq(schema.houses.id, houseId));
         if (!house) throw new BadRequestException('House not found');
+        if (input.currency && input.currency !== house.currency) {
+          // the balance function is single-currency (invariant 3); mixed
+          // currencies would net EUR cents against USD cents
+          throw new BadRequestException(`This house keeps its ledger in ${house.currency}`);
+        }
 
         const involved = [...new Set([...input.participants, input.paidBy])];
         const activeMembers = await tx
@@ -154,7 +163,8 @@ export class LedgerService {
         await tx.insert(schema.idempotencyKeys).values({
           key: idempotencyKey,
           userId,
-          endpoint: 'POST /v1/houses/:houseId/expenses',
+          endpoint,
+          requestHash,
           responseStatus: 201,
           responseBody: body,
         });
@@ -162,7 +172,7 @@ export class LedgerService {
       });
     } catch (err) {
       if (isUniqueViolation(err)) {
-        const stored = await this.findStoredResponse(idempotencyKey);
+        const stored = await this.findStoredResponse(idempotencyKey, userId, endpoint, requestHash);
         if (stored) return stored;
       }
       throw err;
@@ -181,7 +191,9 @@ export class LedgerService {
     idempotencyKey: string,
     input: { toUser: string; amountCents: number; currency?: string; method?: string },
   ): Promise<{ status: number; body: unknown }> {
-    const replayed = await this.findStoredResponse(idempotencyKey);
+    const endpoint = 'POST /v1/houses/:houseId/payments';
+    const requestHash = hashRequest({ houseId, input });
+    const replayed = await this.findStoredResponse(idempotencyKey, userId, endpoint, requestHash);
     if (replayed) return replayed;
     if (input.toUser === userId) {
       throw new BadRequestException('You cannot record a payment to yourself');
@@ -194,6 +206,9 @@ export class LedgerService {
           .from(schema.houses)
           .where(eq(schema.houses.id, houseId));
         if (!house) throw new BadRequestException('House not found');
+        if (input.currency && input.currency !== house.currency) {
+          throw new BadRequestException(`This house keeps its ledger in ${house.currency}`);
+        }
 
         const counterpart = await tx
           .select({ userId: schema.houseMembers.userId })
@@ -235,7 +250,8 @@ export class LedgerService {
         await tx.insert(schema.idempotencyKeys).values({
           key: idempotencyKey,
           userId,
-          endpoint: 'POST /v1/houses/:houseId/payments',
+          endpoint,
+          requestHash,
           responseStatus: 201,
           responseBody: body,
         });
@@ -243,7 +259,7 @@ export class LedgerService {
       });
     } catch (err) {
       if (isUniqueViolation(err)) {
-        const stored = await this.findStoredResponse(idempotencyKey);
+        const stored = await this.findStoredResponse(idempotencyKey, userId, endpoint, requestHash);
         if (stored) return stored;
       }
       throw err;
@@ -343,14 +359,32 @@ export class LedgerService {
     );
   }
 
+  /**
+   * Replay lookup is scoped to (key, user, endpoint): one user's stored
+   * response can never be replayed to another user or across endpoints.
+   * A key reused with a different body is a client bug and gets 409
+   * instead of a silent wrong replay.
+   */
   private async findStoredResponse(
     key: string,
+    userId: string,
+    endpoint: string,
+    requestHash: string,
   ): Promise<{ status: number; body: unknown } | null> {
     const [row] = await this.db
       .select()
       .from(schema.idempotencyKeys)
-      .where(eq(schema.idempotencyKeys.key, key));
+      .where(
+        and(
+          eq(schema.idempotencyKeys.key, key),
+          eq(schema.idempotencyKeys.userId, userId),
+          eq(schema.idempotencyKeys.endpoint, endpoint),
+        ),
+      );
     if (!row) return null;
+    if (row.requestHash !== requestHash) {
+      throw new ConflictException('Idempotency-Key was already used with a different request');
+    }
     return { status: row.responseStatus, body: row.responseBody };
   }
 }

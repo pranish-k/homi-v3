@@ -1,6 +1,7 @@
 import { Global, Module, type OnApplicationShutdown } from '@nestjs/common';
-import { createDb, createPool, type Db } from '@homi/db';
+import { createDb, type Db } from '@homi/db';
 import type { Pool } from 'pg';
+import { closeSharedPool, getSharedPool } from './db.pool';
 
 export const DB = Symbol('DB');
 export const PG_POOL = Symbol('PG_POOL');
@@ -10,11 +11,7 @@ export const PG_POOL = Symbol('PG_POOL');
   providers: [
     {
       provide: PG_POOL,
-      useFactory: (): Pool => {
-        const url = process.env.DATABASE_URL;
-        if (!url) throw new Error('DATABASE_URL is not set');
-        return createPool(url);
-      },
+      useFactory: (): Pool => getSharedPool(),
     },
     {
       provide: DB,
@@ -25,8 +22,7 @@ export const PG_POOL = Symbol('PG_POOL');
   exports: [DB, PG_POOL],
 })
 export class DbModule implements OnApplicationShutdown {
-  constructor() {}
   async onApplicationShutdown(): Promise<void> {
-    // pool closed by Nest lifecycle owners in tests; no-op here
+    await closeSharedPool();
   }
 }
