@@ -1,8 +1,17 @@
 # HOMI v3 Progress
 
-**Last updated:** 2026-07-07 17:20 (Sprint 2 close)
+**Last updated:** 2026-07-08 (post-review hardening)
 **Phase:** R1 Money Core (weeks 1-12, committed scope)
-**Repo:** https://github.com/pranish-k/homi-v3 · tag `v0.2.0-sprint2` · CI: green
+**Repo:** https://github.com/pranish-k/homi-v3 · tag `v0.2.0-sprint2` + review fixes (`f8dfdc1`) · CI: green
+
+## Done (Code review + hardening, 2026-07-08)
+
+- Independent agent code review of Sprints 1-2; findings fixed same day (commit `f8dfdc1`)
+- CRITICAL: idempotency replay now scoped to (key, user, endpoint) with request-hash mismatch = 409; was leaking other users' stored responses cross-house
+- CRITICAL: ledger is enforced single-currency per house; balances can no longer net mixed currencies
+- HIGH: prod refuses to boot without BETTER_AUTH_SECRET; magic-link URLs never logged in prod; payment amounts bounded; one shared pg pool drained on shutdown
+- Migration `0002_review_hardening`: hot-path indexes + CHECK constraints (positive amounts, distinct payment parties, invite use caps, room weight range)
+- Integration suite grown to 16 tests incl. concurrent same-key race and DB-level split-sum assertion; deferred findings filed as HOMI-24..27
 
 ## Done (Sprint 2, 2026-07-07)
 
@@ -26,10 +35,12 @@
 
 1. **Sprint 3 opener (retro action): realtime and the HOME snapshot (HOMI-17, HOMI-20).**
    Realtime events are cache-invalidation hints only, never the data itself (H6).
-2. **Debt to carry consciously:** magic-link emails are only logged until HOMI-21 (email provider); legacy auth tables await the HOMI-22 contract migration; shared rooms (two occupants) are HOMI-23.
-3. **HOMI-14 Cloud Run deploy.**
+2. **Debt to carry consciously:** magic-link emails are only logged until HOMI-21 (email provider); legacy auth tables await the HOMI-22 contract migration; shared rooms (two occupants) are HOMI-23; review deferrals HOMI-24..27 (rate limiting on auth/invites, single-snapshot balance reads, idempotency-key retention, DB-touching health check).
+   Rate limiting (HOMI-24) matters most: the magic-link endpoint is an unauthenticated email-send loop.
+3. **Process:** run an agent code review as a standing gate at each sprint close; this one caught two criticals the DoD's "reviewed" line would otherwise have waved through.
+4. **HOMI-14 Cloud Run deploy.**
    CI deploy jobs are placeholders gated on `GCP_WORKLOAD_IDENTITY_PROVIDER`; needs GCP project + Workload Identity setup.
-4. **Recurring bills (HOMI-13) carry the sharpest hazards:** unique key on (template_id, period) so re-runs never double-post rent (H4), and all scheduling in the house timezone server-side (H5).
-5. **Every money mutation stays idempotent and transactional (H1); the Definition of Done is the checklist, not a suggestion.**
-6. **Local dev quirk:** this Mac has no Docker daemon; integration tests run against Homebrew `postgresql@15` (scratch cluster on port 5433) or in CI.
-7. **R1 discipline:** R2-R4 are hypothesis backlog; if money retention is weak, fix money, do not start chores.
+5. **Recurring bills (HOMI-13) carry the sharpest hazards:** unique key on (template_id, period) so re-runs never double-post rent (H4), and all scheduling in the house timezone server-side (H5).
+6. **Every money mutation stays idempotent and transactional (H1); the Definition of Done is the checklist, not a suggestion.**
+7. **Local dev quirk:** this Mac has no Docker daemon; integration tests run against Homebrew `postgresql@15` (scratch cluster on port 5433) or in CI.
+8. **R1 discipline:** R2-R4 are hypothesis backlog; if money retention is weak, fix money, do not start chores.
