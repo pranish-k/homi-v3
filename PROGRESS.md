@@ -1,8 +1,22 @@
 # HOMI v3 Progress
 
-**Last updated:** 2026-07-08 (Sprint 3 close)
+**Last updated:** 2026-07-09 (post-review hardening)
 **Phase:** R1 Money Core (weeks 1-12, committed scope)
-**Repo:** https://github.com/pranish-k/homi-v3 · tag `v0.3.0-sprint3` · CI: green
+**Repo:** https://github.com/pranish-k/homi-v3 · tag `v0.3.0-sprint3` + review fixes (`312f7ad`) · CI: green (main and tag runs)
+
+## Done (Code review + hardening, 2026-07-09)
+
+- Multi-agent code review of the Sprint 3 diff (5 finder angles); findings fixed same day (commit `312f7ad`)
+- CRITICAL: an unhandled 'error' event on the raw upgrade socket during the async WS handshake could kill the whole API process; a client resetting the TCP connection mid-auth was a remotely triggerable crash
+- CRITICAL: Nest closes the HTTP server before onApplicationShutdown runs, so one connected phone made httpServer.close() wait forever and turned every deploy into a SIGKILL; socket teardown moved to beforeApplicationShutdown
+- HIGH: the per-IP magic-link budget keyed on the FIRST x-forwarded-for entry, which is client-controlled; a spoofed header minted a fresh budget per request (and could poison a victim's); now keyed on the LAST entry, the one the load balancer appends
+- HIGH: after a Redis close the message handler was never rewired onto a fresh subscriber connection (stale boolean), silently dropping every hint; wiring is now tracked per client
+- HIGH: the WS subscription is awaited before the 101 handshake completes, so a hint published right after 'open' cannot race past the SUBSCRIBE ack (was a CI-only flake risk)
+- MEDIUM: a Redis rate-limit counter that lost its TTL locked its subject out permanently (retry-after 1s forever); the Lua script now repairs missing expiries
+- MEDIUM: /healthz probed the DB, so a transient DB blip would have had an orchestrator restart every healthy instance; /healthz is pure liveness again and the DB probe moved to /readyz
+- MEDIUM: getLedger read expenses and payments in two auto-commit statements (the torn-read pattern HOMI-25 fixed in getBalances); now one repeatable-read snapshot
+- Cleanups: house.created now publishes like every other event; publish ids derive from transaction results; lastMagicLink bounded; rate-limit tests reset warm Redis budgets
+- Accepted for later: getBalances folds full history per call (Redis hot cache is the spec plan); publish-per-method refactor to derive hints from activity_events (queued Sprint 4); WS membership recheck (no member-removal endpoint exists yet)
 
 ## Done (Sprint 3, 2026-07-08)
 
