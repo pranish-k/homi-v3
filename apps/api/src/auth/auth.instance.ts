@@ -16,10 +16,14 @@ const MAGIC_LINK_PER_EMAIL = 3;
 const MAGIC_LINK_PER_IP = 30;
 
 function requestIp(request: Request | undefined): string | undefined {
-  // set by the load balancer in any deployed environment; absent in
-  // local direct connections, where the per-email budget still applies
+  // the load balancer APPENDS the real client IP, so only the LAST
+  // entry is trustworthy; the first entries are client-controlled and
+  // keying on them would let an attacker mint a fresh budget per
+  // request (or poison a victim's). Absent locally, where the
+  // per-email budget still applies.
   const forwarded = request?.headers.get('x-forwarded-for');
-  return forwarded?.split(',')[0]?.trim() || undefined;
+  const parts = forwarded?.split(',');
+  return parts?.[parts.length - 1]?.trim() || undefined;
 }
 
 const magicLinkRateLimit = createAuthMiddleware(async (ctx) => {
@@ -99,6 +103,12 @@ function buildAuth() {
             // never log sign-in credentials; fail loudly until email
             // delivery exists (HOMI-21)
             throw new Error('Email delivery is not configured (HOMI-21)');
+          }
+          // bounded: a long-running dev process must not grow one entry
+          // per distinct email forever
+          if (lastMagicLink.size >= 100) {
+            const oldest = lastMagicLink.keys().next().value;
+            if (oldest) lastMagicLink.delete(oldest);
           }
           lastMagicLink.set(email, url);
           console.log(`[auth] magic link for ${email}: ${url}`);

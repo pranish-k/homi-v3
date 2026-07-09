@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { Injectable, type OnApplicationShutdown } from '@nestjs/common';
+import type { Redis } from 'ioredis';
 import { closeRedis, getRedis, getSubscriberRedis, redisConfigured } from '../redis';
 
 /**
@@ -28,7 +29,9 @@ type Listener = (hint: RealtimeHint) => void;
 export class RealtimeService implements OnApplicationShutdown {
   private readonly local = new EventEmitter().setMaxListeners(0);
   private readonly useRedis = redisConfigured();
-  private redisWired = false;
+  // tracked per client, not as a boolean: after closeRedis a fresh
+  // subscriber connection needs the message handler wired again
+  private wiredClient?: Redis;
 
   publish(houseId: string, hint: Omit<RealtimeHint, 'ts'>): void {
     const message: RealtimeHint = { ...hint, ts: new Date().toISOString() };
@@ -43,30 +46,32 @@ export class RealtimeService implements OnApplicationShutdown {
     }
   }
 
-  subscribe(houseId: string, listener: Listener): () => void {
-    if (this.useRedis) {
-      this.wireRedisOnce();
-      const sub = getSubscriberRedis();
-      void sub
-        .subscribe(`house:${houseId}`)
-        .catch((err) => console.error('[realtime] subscribe failed', err));
-      this.local.on(houseId, listener);
-      return () => {
-        this.local.off(houseId, listener);
-        if (this.local.listenerCount(houseId) === 0) {
-          void sub.unsubscribe(`house:${houseId}`).catch(() => undefined);
-        }
-      };
-    }
+  /**
+   * Resolves only once the subscription is live (Redis has acked the
+   * SUBSCRIBE), so callers can rely on not missing hints published
+   * after this returns.
+   */
+  async subscribe(houseId: string, listener: Listener): Promise<() => void> {
     this.local.on(houseId, listener);
-    return () => this.local.off(houseId, listener);
+    if (!this.useRedis) {
+      return () => this.local.off(houseId, listener);
+    }
+    const sub = this.wireRedis();
+    await sub.subscribe(`house:${houseId}`);
+    return () => {
+      this.local.off(houseId, listener);
+      if (this.local.listenerCount(houseId) === 0) {
+        void sub.unsubscribe(`house:${houseId}`).catch(() => undefined);
+      }
+    };
   }
 
-  /** One Redis message handler per process, routing to local listeners by channel. */
-  private wireRedisOnce(): void {
-    if (this.redisWired) return;
-    this.redisWired = true;
-    getSubscriberRedis().on('message', (channel: string, raw: string) => {
+  /** One Redis message handler per subscriber connection, routing to local listeners by channel. */
+  private wireRedis(): Redis {
+    const sub = getSubscriberRedis();
+    if (this.wiredClient === sub) return sub;
+    this.wiredClient = sub;
+    sub.on('message', (channel: string, raw: string) => {
       const houseId = channel.replace(/^house:/, '');
       try {
         this.local.emit(houseId, JSON.parse(raw) as RealtimeHint);
@@ -74,10 +79,12 @@ export class RealtimeService implements OnApplicationShutdown {
         console.error(`[realtime] dropped malformed message on ${channel}`);
       }
     });
+    return sub;
   }
 
   async onApplicationShutdown(): Promise<void> {
     this.local.removeAllListeners();
+    this.wiredClient = undefined;
     if (this.useRedis) await closeRedis();
   }
 }

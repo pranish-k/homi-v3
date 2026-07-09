@@ -24,6 +24,15 @@ describe('rate limiting (HOMI-24)', () => {
   let http: ReturnType<INestApplication['getHttpServer']>;
 
   beforeAll(async () => {
+    if (process.env.REDIS_URL) {
+      // budgets in a warm shared Redis survive across runs and files;
+      // start each suite from zero so assertions stay deterministic
+      const { Redis } = await import('ioredis');
+      const redis = new Redis(process.env.REDIS_URL);
+      const keys = await redis.keys('rl:*');
+      if (keys.length) await redis.del(...keys);
+      await redis.quit();
+    }
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
     app = moduleRef.createNestApplication(undefined, { bodyParser: false });
     setupApp(app);

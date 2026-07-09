@@ -13,6 +13,7 @@ import { Redis } from 'ioredis';
  */
 let publisher: Redis | undefined;
 let subscriber: Redis | undefined;
+let closed = false;
 
 export function redisConfigured(): boolean {
   if (process.env.REDIS_URL) return true;
@@ -25,9 +26,7 @@ export function redisConfigured(): boolean {
 /** Shared connection for commands and PUBLISH. */
 export function getRedis(): Redis {
   if (!publisher) {
-    const url = process.env.REDIS_URL;
-    if (!url) throw new Error('REDIS_URL is not set');
-    publisher = new Redis(url, { maxRetriesPerRequest: 2 });
+    publisher = connect();
   }
   return publisher;
 }
@@ -35,14 +34,22 @@ export function getRedis(): Redis {
 /** A connection in subscriber mode can run no other commands, so it is dedicated. */
 export function getSubscriberRedis(): Redis {
   if (!subscriber) {
-    const url = process.env.REDIS_URL;
-    if (!url) throw new Error('REDIS_URL is not set');
-    subscriber = new Redis(url, { maxRetriesPerRequest: 2 });
+    subscriber = connect();
   }
   return subscriber;
 }
 
+function connect(): Redis {
+  // a straggling request after shutdown must fail, not open a fresh
+  // auto-reconnecting client that nothing will ever close
+  if (closed) throw new Error('Redis connections are closed (shutting down)');
+  const url = process.env.REDIS_URL;
+  if (!url) throw new Error('REDIS_URL is not set');
+  return new Redis(url, { maxRetriesPerRequest: 2 });
+}
+
 export async function closeRedis(): Promise<void> {
+  closed = true;
   const clients = [publisher, subscriber].filter((c): c is Redis => c !== undefined);
   publisher = undefined;
   subscriber = undefined;

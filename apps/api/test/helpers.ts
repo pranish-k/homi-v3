@@ -16,6 +16,7 @@ export async function signIn(
   await request(http).post('/api/auth/sign-in/magic-link').send({ email }).expect(200);
   const url = lastMagicLink.get(email);
   if (!url) throw new Error(`no magic link captured for ${email}`);
+  lastMagicLink.delete(email); // consumed: the capture map must not grow across a suite
   const token = new URL(url).searchParams.get('token');
   const verify = await request(http).get(`/api/auth/magic-link/verify?token=${token}`);
   expect(verify.status).toBeLessThan(400);

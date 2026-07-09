@@ -74,7 +74,6 @@ export class LedgerService {
     try {
       // hints go out only after the transaction commits: an in-tx publish
       // could tell clients to refetch a write that then rolls back (H6)
-      let createdExpenseId: string | undefined;
       const result = await this.db.transaction(async (tx) => {
         const [house] = await tx
           .select()
@@ -183,16 +182,13 @@ export class LedgerService {
           responseStatus: 201,
           responseBody: body,
         });
-        createdExpenseId = expense.id;
         return { status: 201, body };
       });
-      if (createdExpenseId) {
-        this.realtime.publish(houseId, {
-          type: 'expense.created',
-          entityType: 'expense',
-          entityId: createdExpenseId,
-        });
-      }
+      this.realtime.publish(houseId, {
+        type: 'expense.created',
+        entityType: 'expense',
+        entityId: result.body.expense.id,
+      });
       return result;
     } catch (err) {
       if (isUniqueViolation(err)) {
@@ -224,7 +220,6 @@ export class LedgerService {
     }
 
     try {
-      let recordedPaymentId: string | undefined;
       const result = await this.db.transaction(async (tx) => {
         const [house] = await tx
           .select()
@@ -280,16 +275,13 @@ export class LedgerService {
           responseStatus: 201,
           responseBody: body,
         });
-        recordedPaymentId = payment.id;
         return { status: 201, body };
       });
-      if (recordedPaymentId) {
-        this.realtime.publish(houseId, {
-          type: 'payment.recorded',
-          entityType: 'payment',
-          entityId: recordedPaymentId,
-        });
-      }
+      this.realtime.publish(houseId, {
+        type: 'payment.recorded',
+        entityType: 'payment',
+        entityId: result.body.payment.id,
+      });
       return result;
     } catch (err) {
       if (isUniqueViolation(err)) {
@@ -420,10 +412,29 @@ export class LedgerService {
     const cursor = opts.cursor ? decodeCursor(opts.cursor) : undefined;
     const fetch = opts.limit + 1; // one extra row decides hasMore without a COUNT
 
+    // one repeatable-read snapshot for the same reason as getBalances
+    // (HOMI-25): a page merged from two different database states could
+    // show a settlement payment without the expense it settles. A row
+    // whose transaction was still open when a walk passed its position
+    // can be missed by that walk (created_at is the tx START time); the
+    // next refetch from the head shows it (H6 self-heal).
+    return this.db.transaction(
+      (tx) => this.getLedgerPage(tx, houseId, cursor, fetch, opts.limit),
+      { isolationLevel: 'repeatable read', accessMode: 'read only' },
+    );
+  }
+
+  private async getLedgerPage(
+    tx: DbConn,
+    houseId: string,
+    cursor: { t: string; id: string } | undefined,
+    fetch: number,
+    limit: number,
+  ) {
     const expenseKeyset = cursor
       ? sql`(${schema.expenses.createdAt}, ${schema.expenses.id}) < (${new Date(cursor.t)}::timestamptz, ${cursor.id}::uuid)`
       : undefined;
-    const expenseRows = await this.db
+    const expenseRows = await tx
       .select()
       .from(schema.expenses)
       .where(
@@ -439,7 +450,7 @@ export class LedgerService {
     const paymentKeyset = cursor
       ? sql`(${schema.payments.createdAt}, ${schema.payments.id}) < (${new Date(cursor.t)}::timestamptz, ${cursor.id}::uuid)`
       : undefined;
-    const paymentRows = await this.db
+    const paymentRows = await tx
       .select()
       .from(schema.payments)
       .where(and(eq(schema.payments.houseId, houseId), paymentKeyset))
@@ -454,12 +465,12 @@ export class LedgerService {
       if (dt !== 0) return dt;
       return b.row.id > a.row.id ? 1 : -1;
     });
-    const page = merged.slice(0, opts.limit);
-    const hasMore = merged.length > opts.limit;
+    const page = merged.slice(0, limit);
+    const hasMore = merged.length > limit;
 
     const expenseIds = page.filter((e) => e.kind === 'expense').map((e) => e.row.id);
     const splitRows = expenseIds.length
-      ? await this.db
+      ? await tx
           .select()
           .from(schema.expenseSplits)
           .where(inArray(schema.expenseSplits.expenseId, expenseIds))

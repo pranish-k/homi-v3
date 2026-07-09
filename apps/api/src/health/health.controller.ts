@@ -4,17 +4,27 @@ import { PG_POOL } from '../db.module';
 
 const DB_PROBE_TIMEOUT_MS = 2_000;
 
-@Controller('healthz')
+@Controller()
 export class HealthController {
   constructor(@Inject(PG_POOL) private readonly pool: Pool) {}
 
   /**
-   * HOMI-27 (review LOW): the probe exercises the database, so a wedged
-   * pool or a dead Postgres flips the instance unhealthy instead of
-   * serving 200s it cannot back up.
+   * Liveness: is the process up. Deliberately does NOT touch the
+   * database; a DB blip must not make the orchestrator restart every
+   * healthy instance.
    */
-  @Get()
-  async health() {
+  @Get('healthz')
+  health() {
+    return { status: 'ok' };
+  }
+
+  /**
+   * Readiness (HOMI-27, review LOW): the probe exercises the database,
+   * so a wedged pool or a dead Postgres takes the instance out of
+   * rotation instead of serving 200s it cannot back up.
+   */
+  @Get('readyz')
+  async ready() {
     try {
       await Promise.race([
         this.pool.query('SELECT 1'),

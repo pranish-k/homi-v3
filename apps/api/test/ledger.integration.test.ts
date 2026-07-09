@@ -483,9 +483,11 @@ describe('R1 money core (Sprints 1-2)', () => {
       .expect(400);
   });
 
-  it('reports healthy only when the database answers (HOMI-27)', async () => {
-    const res = await request(http).get('/healthz').expect(200);
-    expect(res.body).toEqual({ status: 'ok' });
+  it('separates liveness from DB-backed readiness (HOMI-27)', async () => {
+    const live = await request(http).get('/healthz').expect(200);
+    expect(live.body).toEqual({ status: 'ok' });
+    const ready = await request(http).get('/readyz').expect(200);
+    expect(ready.body).toEqual({ status: 'ok' });
   });
 
   it('denies cross-house access on every surface (spec 5.6)', async () => {

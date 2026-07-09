@@ -55,7 +55,12 @@ export class RedisRateLimiter implements RateLimiter {
     // outlive a closed connection.
     const [count, ttl] = (await getRedis().eval(
       `local c = redis.call('INCR', KEYS[1])
-       if c == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
+       if c == 1 or redis.call('TTL', KEYS[1]) < 0 then
+         -- also repairs a counter that lost its expiry (e.g. restored
+         -- from a snapshot); without this the key counts up forever and
+         -- locks its subject out permanently
+         redis.call('EXPIRE', KEYS[1], ARGV[1])
+       end
        return {c, redis.call('TTL', KEYS[1])}`,
       1,
       redisKey,

@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { schema, type Db } from '@homi/db';
 import { DB } from '../db.module';
+import { RealtimeService } from '../realtime/realtime.service';
 
 export interface CreateHouseInput {
   name: string;
@@ -10,10 +11,13 @@ export interface CreateHouseInput {
 
 @Injectable()
 export class HousesService {
-  constructor(@Inject(DB) private readonly db: Db) {}
+  constructor(
+    @Inject(DB) private readonly db: Db,
+    private readonly realtime: RealtimeService,
+  ) {}
 
   async createHouse(userId: string, input: CreateHouseInput) {
-    return this.db.transaction(async (tx) => {
+    const created = await this.db.transaction(async (tx) => {
       const [house] = await tx
         .insert(schema.houses)
         .values({ ...input, createdBy: userId })
@@ -33,5 +37,14 @@ export class HousesService {
       });
       return house;
     });
+    // nobody can be connected to a brand-new house yet, but every
+    // activity event goes to the bus: consumers must not learn which
+    // event types are "safe" to miss
+    this.realtime.publish(created.id, {
+      type: 'house.created',
+      entityType: 'house',
+      entityId: created.id,
+    });
+    return created;
   }
 }

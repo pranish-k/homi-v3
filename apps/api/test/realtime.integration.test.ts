@@ -97,7 +97,7 @@ describe('realtime gateway (HOMI-17)', () => {
 
   afterAll(async () => {
     // sockets a failed test left open would stall the HTTP server close
-    app.get(RealtimeGateway).onApplicationShutdown();
+    app.get(RealtimeGateway).beforeApplicationShutdown();
     await app.close();
   });
 
