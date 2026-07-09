@@ -38,11 +38,17 @@ export const expenses = pgTable(
     createdBy: uuid('created_by')
       .notNull()
       .references(() => users.id),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    // precision 3: cursors round-trip through JS Dates (ms); µs in the
+    // column but not the cursor would let keyset pagination skip rows
+    createdAt: timestamp('created_at', { withTimezone: true, precision: 3 })
+      .notNull()
+      .defaultNow(),
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
   },
   (t) => [
-    index('idx_expenses_house').on(t.houseId),
+    // (house, created_at, id) serves both the house scan and HOMI-16
+    // keyset pagination on (created_at, id)
+    index('idx_expenses_house_created').on(t.houseId, t.createdAt, t.id),
     check('chk_expenses_amount_positive', sql`${t.amountCents} > 0`),
   ],
 );
@@ -112,12 +118,14 @@ export const payments = pgTable(
     currency: char('currency', { length: 3 }).notNull(),
     method: text('method'), // venmo | zelle | cash_app | cash | other
     status: text('status').notNull().default('recorded'), // recorded | disputed | resolved
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp('created_at', { withTimezone: true, precision: 3 })
+      .notNull()
+      .defaultNow(),
     disputedAt: timestamp('disputed_at', { withTimezone: true }),
     resolvedAt: timestamp('resolved_at', { withTimezone: true }),
   },
   (t) => [
-    index('idx_payments_house').on(t.houseId),
+    index('idx_payments_house_created').on(t.houseId, t.createdAt, t.id),
     check('chk_payments_amount_positive', sql`${t.amountCents} > 0`),
     check('chk_payments_distinct_parties', sql`${t.fromUser} <> ${t.toUser}`),
   ],
@@ -158,7 +166,9 @@ export const activityEvents = pgTable(
     entityType: text('entity_type').notNull(),
     entityId: uuid('entity_id').notNull(),
     payload: jsonb('payload'),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp('created_at', { withTimezone: true, precision: 3 })
+      .notNull()
+      .defaultNow(),
   },
   (t) => [index('idx_activity_events_house_created').on(t.houseId, t.createdAt)],
 );
