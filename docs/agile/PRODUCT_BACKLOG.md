@@ -35,16 +35,16 @@ Priority order within each epic is top to bottom.
 | HOMI-11 | As a member, I can record a settlement payment with a 72-hour dispute window | 5 | Done (Sprint 2) |
 | HOMI-12 | As a member, I can edit an expense; the previous version is kept as a revision and the house is notified | 5 | Backlog |
 | HOMI-13 | As a bill owner, recurring bills auto-post on their due date in the house timezone, exactly once per period (H4, H5) | 8 | Backlog |
-| HOMI-16 | As a member, I see a unified cursor-paginated ledger of expenses and payments | 3 | Backlog |
+| HOMI-16 | As a member, I see a unified cursor-paginated ledger of expenses and payments | 3 | Done (Sprint 3) |
 
 ## Epic E4: Engagement surfaces
 
 | ID | Story | Points | Status |
 |---|---|---|---|
-| HOMI-17 | As a member, I get realtime feed updates over WebSocket, used only as cache-invalidation hints (H6) | 8 | Backlog |
+| HOMI-17 | As a member, I get realtime feed updates over WebSocket, used only as cache-invalidation hints (H6) | 8 | Done (Sprint 3) |
 | HOMI-18 | As a debtor, HOMI nudges me privately when a balance goes stale; creditors never have to ask (M3, M4) | 5 | Backlog |
 | HOMI-19 | As a member, I receive a weekly digest of house balances and activity | 3 | Backlog |
-| HOMI-20 | As a member, the HOME snapshot endpoint returns members, balances, action items, and feed head in one call | 5 | Backlog |
+| HOMI-20 | As a member, the HOME snapshot endpoint returns members, balances, action items, and feed head in one call | 5 | Done (Sprint 3) |
 
 ## Epic E5: Hardening and debt
 
@@ -53,10 +53,10 @@ Priority order within each epic is top to bottom.
 | HOMI-21 | As a user, magic-link and notification emails are delivered via a transactional email provider | 3 | Backlog |
 | HOMI-22 | As a developer, the legacy hand-rolled auth tables are dropped (contract phase of the HOMI-2 migration, H7) | 1 | Backlog |
 | HOMI-23 | As a couple sharing a room, our room's weight splits across both occupants | 2 | Backlog |
-| HOMI-24 | As an operator, auth and invite endpoints are rate limited (spec 5.5; magic-link send is an unauthenticated email loop) | 3 | Backlog (review M6) |
-| HOMI-25 | As the system, getBalances reads expenses and payments in one consistent snapshot instead of two statements | 2 | Backlog (review M3) |
+| HOMI-24 | As an operator, auth and invite endpoints are rate limited (spec 5.5; magic-link send is an unauthenticated email loop) | 3 | Done (Sprint 3) |
+| HOMI-25 | As the system, getBalances reads expenses and payments in one consistent snapshot instead of two statements | 2 | Done (Sprint 3) |
 | HOMI-26 | As an operator, idempotency keys are pruned by a worker job after a retention window | 2 | Backlog (review M7) |
-| HOMI-27 | As an operator, /healthz verifies DB connectivity so a wedged pool cannot report healthy | 1 | Backlog (review LOW) |
+| HOMI-27 | As an operator, /healthz verifies DB connectivity so a wedged pool cannot report healthy | 1 | Done (Sprint 3) |
 
 ## Release gate (R1 to R2)
 

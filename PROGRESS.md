@@ -1,8 +1,18 @@
 # HOMI v3 Progress
 
-**Last updated:** 2026-07-08 (post-review hardening)
+**Last updated:** 2026-07-08 (Sprint 3 close)
 **Phase:** R1 Money Core (weeks 1-12, committed scope)
-**Repo:** https://github.com/pranish-k/homi-v3 · tag `v0.2.0-sprint2` + review fixes (`f8dfdc1`) · CI: green
+**Repo:** https://github.com/pranish-k/homi-v3 · tag `v0.3.0-sprint3` · CI: green
+
+## Done (Sprint 3, 2026-07-08)
+
+- HOME snapshot endpoint: members, balances, per-caller action items, 20-event feed head in one repeatable-read transaction [HOMI-20]
+- Realtime WebSocket gateway: one channel per house, session + membership checked at connect via the same MembershipService as HTTP, hints only (ids and types, never data, H6), published only after commit and never on idempotent replays; Redis pub/sub when configured, in-process fallback for single-node dev (prod refuses the fallback) [HOMI-17]
+- Unified ledger: expenses + payments newest-first behind an opaque keyset cursor on (created_at, id); paginated created_at columns narrowed to timestamptz(3) so ms-precision JS cursors cannot skip µs rows (migration `0003_ledger_pagination`) [HOMI-16]
+- Rate limiting: magic-link sends 3/email and 30/IP per 15 min (Better Auth before-hook), invite create/accept 20/user/hour (Nest guard), 429 + Retry-After, Redis-backed when configured [HOMI-24]
+- Drive-bys: getBalances reads one repeatable-read snapshot [HOMI-25]; /healthz probes the DB with a 2s timeout [HOMI-27]
+- Integration suite 16 -> 26 tests across three files; runs with and without REDIS_URL; CI integration job gained a Redis service container
+- Review gate ran inline (cloud agents unavailable): fixed a WS-path 500-instead-of-404 bug, a stale-Redis-client hazard, limiter eviction, and four deduplications
 
 ## Done (Code review + hardening, 2026-07-08)
 
@@ -33,14 +43,15 @@
 
 ## Next steps and what to be mindful of
 
-1. **Sprint 3 opener (retro action): realtime and the HOME snapshot (HOMI-17, HOMI-20).**
-   Realtime events are cache-invalidation hints only, never the data itself (H6).
-2. **Debt to carry consciously:** magic-link emails are only logged until HOMI-21 (email provider); legacy auth tables await the HOMI-22 contract migration; shared rooms (two occupants) are HOMI-23; review deferrals HOMI-24..27 (rate limiting on auth/invites, single-snapshot balance reads, idempotency-key retention, DB-touching health check).
-   Rate limiting (HOMI-24) matters most: the magic-link endpoint is an unauthenticated email-send loop.
-3. **Process:** run an agent code review as a standing gate at each sprint close; this one caught two criticals the DoD's "reviewed" line would otherwise have waved through.
+1. **Sprint 4 opener (retro action): recurring bills (HOMI-13), hazards first.**
+   Unique key on (template_id, period) so re-runs never double-post rent (H4); all scheduling computed server-side in the house timezone (H5).
+   The worker gets its first real job here; publish its events through the same Redis bus the gateway already consumes.
+2. **Refactor queued with the next ledger story:** derive realtime hints from the activity_events write that already happens inside every transaction, instead of hand-placed publish calls per service method.
+3. **Debt to carry consciously:** magic-link emails are only logged until HOMI-21 (email provider); legacy auth tables await the HOMI-22 contract migration; shared rooms are HOMI-23; idempotency-key retention is HOMI-26.
 4. **HOMI-14 Cloud Run deploy.**
    CI deploy jobs are placeholders gated on `GCP_WORKLOAD_IDENTITY_PROVIDER`; needs GCP project + Workload Identity setup.
-5. **Recurring bills (HOMI-13) carry the sharpest hazards:** unique key on (template_id, period) so re-runs never double-post rent (H4), and all scheduling in the house timezone server-side (H5).
+   Note: production now requires REDIS_URL (realtime fan-out and rate limits refuse the in-process fallback) and BETTER_AUTH_SECRET.
+5. **Process:** the agent code review stays the standing gate at each sprint close; Sprint 3's ran inline (cloud agents unavailable) and still caught a real 500-instead-of-404 bug.
 6. **Every money mutation stays idempotent and transactional (H1); the Definition of Done is the checklist, not a suggestion.**
-7. **Local dev quirk:** this Mac has no Docker daemon; integration tests run against Homebrew `postgresql@15` (scratch cluster on port 5433) or in CI.
+7. **Local dev quirk:** this Mac has no Docker daemon; integration tests run against Homebrew `postgresql@15` (scratch cluster on port 5433) plus Homebrew `redis` for the Redis-backed path, or in CI.
 8. **R1 discipline:** R2-R4 are hypothesis backlog; if money retention is weak, fix money, do not start chores.
