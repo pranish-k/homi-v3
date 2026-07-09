@@ -1,9 +1,30 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, Inject, ServiceUnavailableException } from '@nestjs/common';
+import type { Pool } from 'pg';
+import { PG_POOL } from '../db.module';
+
+const DB_PROBE_TIMEOUT_MS = 2_000;
 
 @Controller('healthz')
 export class HealthController {
+  constructor(@Inject(PG_POOL) private readonly pool: Pool) {}
+
+  /**
+   * HOMI-27 (review LOW): the probe exercises the database, so a wedged
+   * pool or a dead Postgres flips the instance unhealthy instead of
+   * serving 200s it cannot back up.
+   */
   @Get()
-  health() {
+  async health() {
+    try {
+      await Promise.race([
+        this.pool.query('SELECT 1'),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('db probe timed out')), DB_PROBE_TIMEOUT_MS).unref(),
+        ),
+      ]);
+    } catch {
+      throw new ServiceUnavailableException({ status: 'unhealthy', db: 'unreachable' });
+    }
     return { status: 'ok' };
   }
 }

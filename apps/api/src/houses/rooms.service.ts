@@ -7,6 +7,7 @@ import {
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { schema, type Db } from '@homi/db';
 import { DB } from '../db.module';
+import { RealtimeService } from '../realtime/realtime.service';
 
 export interface RoomInput {
   name: string;
@@ -16,7 +17,10 @@ export interface RoomInput {
 
 @Injectable()
 export class RoomsService {
-  constructor(@Inject(DB) private readonly db: Db) {}
+  constructor(
+    @Inject(DB) private readonly db: Db,
+    private readonly realtime: RealtimeService,
+  ) {}
 
   /**
    * HOMI-10: room weights are set once at move-in (M1) and must sum to
@@ -34,7 +38,7 @@ export class RoomsService {
       throw new BadRequestException('Each room needs its own occupant (shared rooms: HOMI-23)');
     }
 
-    return this.db.transaction(async (tx) => {
+    const configured = await this.db.transaction(async (tx) => {
       const [actor] = await tx
         .select({ role: schema.houseMembers.role })
         .from(schema.houseMembers)
@@ -97,6 +101,12 @@ export class RoomsService {
       });
       return created;
     });
+    this.realtime.publish(houseId, {
+      type: 'rooms.configured',
+      entityType: 'house',
+      entityId: houseId,
+    });
+    return configured;
   }
 
   async getRooms(houseId: string) {

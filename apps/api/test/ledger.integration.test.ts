@@ -6,17 +6,12 @@ import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AppModule } from '../src/app.module';
 import { PG_POOL } from '../src/db.module';
-import { lastMagicLink } from '../src/auth/auth.instance';
 import { setupApp } from '../src/setup';
+import { signIn, type Session } from './helpers';
 import type { Pool } from 'pg';
 
 if (!process.env.DATABASE_URL) {
   throw new Error('DATABASE_URL must be set for integration tests (see docker-compose.yml)');
-}
-
-interface Session {
-  cookie: string;
-  userId: string;
 }
 
 describe('R1 money core (Sprints 1-2)', () => {
@@ -28,26 +23,6 @@ describe('R1 money core (Sprints 1-2)', () => {
   let mallory: Session;
   let houseId: string;
 
-  /** HOMI-2: the only way in is the real magic-link flow. */
-  async function signIn(email: string): Promise<Session> {
-    await request(http)
-      .post('/api/auth/sign-in/magic-link')
-      .send({ email })
-      .expect(200);
-    const url = lastMagicLink.get(email);
-    if (!url) throw new Error(`no magic link captured for ${email}`);
-    const token = new URL(url).searchParams.get('token');
-    const verify = await request(http).get(`/api/auth/magic-link/verify?token=${token}`);
-    expect(verify.status).toBeLessThan(400);
-    const setCookies = verify.headers['set-cookie'];
-    if (!setCookies) throw new Error('verify did not set a session cookie');
-    const cookie = (Array.isArray(setCookies) ? setCookies : [setCookies])
-      .map((c: string) => c.split(';')[0])
-      .join('; ');
-    const me = await request(http).get('/api/auth/get-session').set('Cookie', cookie).expect(200);
-    return { cookie, userId: me.body.user.id };
-  }
-
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
     app = moduleRef.createNestApplication(undefined, { bodyParser: false });
@@ -57,9 +32,9 @@ describe('R1 money core (Sprints 1-2)', () => {
     pool = app.get<Pool>(PG_POOL);
 
     const run = randomUUID().slice(0, 8);
-    ana = await signIn(`ana-${run}@example.com`);
-    ben = await signIn(`ben-${run}@example.com`);
-    mallory = await signIn(`mallory-${run}@example.com`);
+    ana = await signIn(http, `ana-${run}@example.com`);
+    ben = await signIn(http, `ben-${run}@example.com`);
+    mallory = await signIn(http, `mallory-${run}@example.com`);
   });
 
   afterAll(async () => {
@@ -406,6 +381,113 @@ describe('R1 money core (Sprints 1-2)', () => {
       .expect(400);
   });
 
+  it('serves the HOME snapshot in one call: members, balances, action items, feed head (HOMI-20)', async () => {
+    const res = await request(http)
+      .get(`/v1/houses/${houseId}/snapshot`)
+      .set('Cookie', ben.cookie)
+      .expect(200);
+
+    expect(res.body.house).toMatchObject({ id: houseId, currency: 'USD' });
+    const memberIds = res.body.members.map((m: { userId: string }) => m.userId);
+    expect(memberIds).toContain(ana.userId);
+    expect(memberIds).toContain(ben.userId);
+    expect(memberIds).not.toContain(mallory.userId);
+
+    // invariant 3: the snapshot's balances are THE balances
+    const balances = await request(http)
+      .get(`/v1/houses/${houseId}/balances`)
+      .set('Cookie', ben.cookie)
+      .expect(200);
+    expect(res.body.balances).toEqual(balances.body);
+
+    // ben owes ana, so ben's action items say settle up, with the exact
+    // pairwise amount; nobody has to ask (M3, M4)
+    const debt = res.body.balances.pairwise.find((p: { from: string }) => p.from === ben.userId);
+    expect(res.body.actionItems).toContainEqual({
+      type: 'settle_up',
+      toUserId: ana.userId,
+      amountCents: debt.amountCents,
+    });
+
+    expect(res.body.feed.length).toBeGreaterThan(0);
+    expect(res.body.feed.length).toBeLessThanOrEqual(20);
+    expect(res.body.feed[0].houseId).toBe(houseId);
+
+    // ana received one payment still open inside its 72h window (the
+    // disputed one is out, the backdated one is past the window)
+    const anaView = await request(http)
+      .get(`/v1/houses/${houseId}/snapshot`)
+      .set('Cookie', ana.cookie)
+      .expect(200);
+    const confirms = anaView.body.actionItems.filter(
+      (a: { type: string }) => a.type === 'confirm_payment',
+    );
+    expect(confirms).toHaveLength(1);
+    expect(confirms[0]).toMatchObject({ fromUserId: ben.userId, amountCents: 50000 });
+  });
+
+  it('pages the unified ledger by keyset cursor with no gaps or duplicates (HOMI-16)', async () => {
+    const counts = await pool.query(
+      `SELECT
+        (SELECT count(*) FROM expenses WHERE house_id = $1 AND deleted_at IS NULL) AS expenses,
+        (SELECT count(*) FROM payments WHERE house_id = $1) AS payments`,
+      [houseId],
+    );
+    const expected = Number(counts.rows[0].expenses) + Number(counts.rows[0].payments);
+    expect(expected).toBeGreaterThan(6); // the suite above created plenty
+
+    const seen: { id: string; createdAt: string; kind: string }[] = [];
+    let cursor: string | undefined;
+    let pages = 0;
+    do {
+      const url = `/v1/houses/${houseId}/ledger?limit=4${cursor ? `&cursor=${cursor}` : ''}`;
+      const res = await request(http).get(url).set('Cookie', ana.cookie).expect(200);
+      expect(res.body.entries.length).toBeLessThanOrEqual(4);
+      seen.push(...res.body.entries);
+      cursor = res.body.nextCursor ?? undefined;
+      pages += 1;
+    } while (cursor && pages < 20);
+
+    expect(seen).toHaveLength(expected);
+    expect(new Set(seen.map((e) => e.id)).size).toBe(expected);
+    for (let i = 1; i < seen.length; i++) {
+      const prev = seen[i - 1]!;
+      const cur = seen[i]!;
+      const ord =
+        prev.createdAt > cur.createdAt ||
+        (prev.createdAt === cur.createdAt && prev.id > cur.id);
+      expect(ord).toBe(true);
+    }
+
+    // expenses carry their splits and they sum to the total (invariant 2)
+    const expense = seen.find((e) => e.kind === 'expense') as unknown as {
+      amountCents: number;
+      splits: Record<string, number>;
+    };
+    const sum = Object.values(expense.splits).reduce((a, b) => a + b, 0);
+    expect(sum).toBe(expense.amountCents);
+
+    // disputed payments stay visible in history even though balances exclude them
+    const disputed = seen.filter(
+      (e) => e.kind === 'payment' && (e as unknown as { status: string }).status === 'disputed',
+    );
+    expect(disputed).toHaveLength(1);
+
+    await request(http)
+      .get(`/v1/houses/${houseId}/ledger?cursor=garbage`)
+      .set('Cookie', ana.cookie)
+      .expect(400);
+    await request(http)
+      .get(`/v1/houses/${houseId}/ledger?limit=101`)
+      .set('Cookie', ana.cookie)
+      .expect(400);
+  });
+
+  it('reports healthy only when the database answers (HOMI-27)', async () => {
+    const res = await request(http).get('/healthz').expect(200);
+    expect(res.body).toEqual({ status: 'ok' });
+  });
+
   it('denies cross-house access on every surface (spec 5.6)', async () => {
     await request(http)
       .get(`/v1/houses/${houseId}/balances`)
@@ -421,6 +503,14 @@ describe('R1 money core (Sprints 1-2)', () => {
       .put(`/v1/houses/${houseId}/rooms`)
       .set('Cookie', mallory.cookie)
       .send({ rooms: [{ name: 'X', weightBp: 10000, userId: mallory.userId }] })
+      .expect(403);
+    await request(http)
+      .get(`/v1/houses/${houseId}/snapshot`)
+      .set('Cookie', mallory.cookie)
+      .expect(403);
+    await request(http)
+      .get(`/v1/houses/${houseId}/ledger`)
+      .set('Cookie', mallory.cookie)
       .expect(403);
   });
 });

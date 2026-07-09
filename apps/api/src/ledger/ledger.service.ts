@@ -7,15 +7,24 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { hashRequest } from '../lib/request-hash';
-import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { schema, type Db } from '@homi/db';
 import {
   computeBalances,
   computeSplits,
   SplitError,
+  type Balances,
   type SplitMode,
 } from '@homi/domain';
 import { DB } from '../db.module';
+import { decodeCursor, encodeCursor } from '../lib/cursor';
+import { RealtimeService } from '../realtime/realtime.service';
+
+/** A Db or a transaction handle within one; both run the same query builders. */
+export type DbConn = Db | Parameters<Parameters<Db['transaction']>[0]>[0];
+
+/** HOMI-11: how long the recipient can dispute a recorded payment. */
+export const DISPUTE_WINDOW_MS = 72 * 60 * 60 * 1000;
 
 export interface CreateExpenseInput {
   description: string;
@@ -38,7 +47,10 @@ function isUniqueViolation(err: unknown): boolean {
 
 @Injectable()
 export class LedgerService {
-  constructor(@Inject(DB) private readonly db: Db) {}
+  constructor(
+    @Inject(DB) private readonly db: Db,
+    private readonly realtime: RealtimeService,
+  ) {}
 
   /**
    * H1: safe to retry, impossible to partially complete.
@@ -60,7 +72,10 @@ export class LedgerService {
     if (replayed) return replayed;
 
     try {
-      return await this.db.transaction(async (tx) => {
+      // hints go out only after the transaction commits: an in-tx publish
+      // could tell clients to refetch a write that then rolls back (H6)
+      let createdExpenseId: string | undefined;
+      const result = await this.db.transaction(async (tx) => {
         const [house] = await tx
           .select()
           .from(schema.houses)
@@ -168,8 +183,17 @@ export class LedgerService {
           responseStatus: 201,
           responseBody: body,
         });
+        createdExpenseId = expense.id;
         return { status: 201, body };
       });
+      if (createdExpenseId) {
+        this.realtime.publish(houseId, {
+          type: 'expense.created',
+          entityType: 'expense',
+          entityId: createdExpenseId,
+        });
+      }
+      return result;
     } catch (err) {
       if (isUniqueViolation(err)) {
         const stored = await this.findStoredResponse(idempotencyKey, userId, endpoint, requestHash);
@@ -200,7 +224,8 @@ export class LedgerService {
     }
 
     try {
-      return await this.db.transaction(async (tx) => {
+      let recordedPaymentId: string | undefined;
+      const result = await this.db.transaction(async (tx) => {
         const [house] = await tx
           .select()
           .from(schema.houses)
@@ -255,8 +280,17 @@ export class LedgerService {
           responseStatus: 201,
           responseBody: body,
         });
+        recordedPaymentId = payment.id;
         return { status: 201, body };
       });
+      if (recordedPaymentId) {
+        this.realtime.publish(houseId, {
+          type: 'payment.recorded',
+          entityType: 'payment',
+          entityId: recordedPaymentId,
+        });
+      }
+      return result;
     } catch (err) {
       if (isUniqueViolation(err)) {
         const stored = await this.findStoredResponse(idempotencyKey, userId, endpoint, requestHash);
@@ -272,8 +306,7 @@ export class LedgerService {
    * resolve cannot double-fire.
    */
   async disputePayment(paymentId: string, userId: string) {
-    const DISPUTE_WINDOW_MS = 72 * 60 * 60 * 1000;
-    return this.db.transaction(async (tx) => {
+    const result = await this.db.transaction(async (tx) => {
       const [payment] = await tx
         .select()
         .from(schema.payments)
@@ -319,13 +352,31 @@ export class LedgerService {
       });
       return { payment: disputedPayment };
     });
+    this.realtime.publish(result.payment.houseId, {
+      type: 'payment.disputed',
+      entityType: 'payment',
+      entityId: paymentId,
+    });
+    return result;
   }
 
   /**
    * Invariant 3: the only balance computation. Every surface reads this.
+   *
+   * HOMI-25 (review M3): expenses and payments are read in ONE
+   * repeatable-read snapshot; a payment committing between the two
+   * statements can no longer produce balances that never existed.
+   * Callers already inside a transaction (the HOME snapshot) pass their
+   * own handle and inherit its consistency.
    */
-  async getBalances(houseId: string) {
-    const expenseRows = await this.db
+  async getBalances(houseId: string, conn?: DbConn): Promise<Balances> {
+    if (!conn) {
+      return this.db.transaction((tx) => this.getBalances(houseId, tx), {
+        isolationLevel: 'repeatable read',
+        accessMode: 'read only',
+      });
+    }
+    const expenseRows = await conn
       .select({
         expenseId: schema.expenses.id,
         paidBy: schema.expenses.paidBy,
@@ -343,7 +394,7 @@ export class LedgerService {
       byExpense.set(row.expenseId, entry);
     }
 
-    const paymentRows = await this.db
+    const paymentRows = await conn
       .select()
       .from(schema.payments)
       .where(eq(schema.payments.houseId, houseId));
@@ -357,6 +408,81 @@ export class LedgerService {
         status: p.status as 'recorded' | 'disputed' | 'resolved',
       })),
     );
+  }
+
+  /**
+   * HOMI-16: one unified, cursor-paginated ledger of expenses and
+   * payments, newest first. Keyset pagination on (created_at, id) - a
+   * page boundary is a fixed point, so concurrent inserts can never
+   * duplicate or skip entries the way OFFSET does.
+   */
+  async getLedger(houseId: string, opts: { cursor?: string; limit: number }) {
+    const cursor = opts.cursor ? decodeCursor(opts.cursor) : undefined;
+    const fetch = opts.limit + 1; // one extra row decides hasMore without a COUNT
+
+    const expenseKeyset = cursor
+      ? sql`(${schema.expenses.createdAt}, ${schema.expenses.id}) < (${new Date(cursor.t)}::timestamptz, ${cursor.id}::uuid)`
+      : undefined;
+    const expenseRows = await this.db
+      .select()
+      .from(schema.expenses)
+      .where(
+        and(
+          eq(schema.expenses.houseId, houseId),
+          isNull(schema.expenses.deletedAt),
+          expenseKeyset,
+        ),
+      )
+      .orderBy(desc(schema.expenses.createdAt), desc(schema.expenses.id))
+      .limit(fetch);
+
+    const paymentKeyset = cursor
+      ? sql`(${schema.payments.createdAt}, ${schema.payments.id}) < (${new Date(cursor.t)}::timestamptz, ${cursor.id}::uuid)`
+      : undefined;
+    const paymentRows = await this.db
+      .select()
+      .from(schema.payments)
+      .where(and(eq(schema.payments.houseId, houseId), paymentKeyset))
+      .orderBy(desc(schema.payments.createdAt), desc(schema.payments.id))
+      .limit(fetch);
+
+    const merged = [
+      ...expenseRows.map((e) => ({ kind: 'expense' as const, row: e })),
+      ...paymentRows.map((p) => ({ kind: 'payment' as const, row: p })),
+    ].sort((a, b) => {
+      const dt = b.row.createdAt.getTime() - a.row.createdAt.getTime();
+      if (dt !== 0) return dt;
+      return b.row.id > a.row.id ? 1 : -1;
+    });
+    const page = merged.slice(0, opts.limit);
+    const hasMore = merged.length > opts.limit;
+
+    const expenseIds = page.filter((e) => e.kind === 'expense').map((e) => e.row.id);
+    const splitRows = expenseIds.length
+      ? await this.db
+          .select()
+          .from(schema.expenseSplits)
+          .where(inArray(schema.expenseSplits.expenseId, expenseIds))
+      : [];
+    const splitsByExpense = new Map<string, Record<string, number>>();
+    for (const s of splitRows) {
+      const entry = splitsByExpense.get(s.expenseId) ?? {};
+      entry[s.userId] = s.amountCents;
+      splitsByExpense.set(s.expenseId, entry);
+    }
+
+    const last = page[page.length - 1];
+    return {
+      entries: page.map((e) =>
+        e.kind === 'expense'
+          ? { kind: e.kind, ...e.row, splits: splitsByExpense.get(e.row.id) ?? {} }
+          : { kind: e.kind, ...e.row },
+      ),
+      nextCursor:
+        hasMore && last
+          ? encodeCursor({ t: last.row.createdAt.toISOString(), id: last.row.id })
+          : null,
+    };
   }
 
   /**

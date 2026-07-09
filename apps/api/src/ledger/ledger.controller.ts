@@ -6,6 +6,7 @@ import {
   Headers,
   Param,
   Post,
+  Query,
   Req,
   Res,
   UseGuards,
@@ -14,10 +15,8 @@ import type { Response } from 'express';
 import { z } from 'zod';
 import { AuthGuard, type AuthedRequest } from '../auth/auth.guard';
 import { HouseMemberGuard } from '../auth/house-member.guard';
-import { parseBody } from '../lib/validation';
+import { parseBody, UUID_RE } from '../lib/validation';
 import { LedgerService } from './ledger.service';
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // H3 bound: bigint columns hold more than Number can represent safely;
 // zod's .int() alone accepts 1e100. $100M in cents is a generous ceiling
@@ -86,6 +85,20 @@ export class LedgerController {
   @Get('balances')
   async balances(@Param('houseId') houseId: string) {
     return this.ledger.getBalances(houseId);
+  }
+
+  /** HOMI-16: unified expenses + payments, newest first, keyset cursor. */
+  @Get('ledger')
+  async getLedger(
+    @Param('houseId') houseId: string,
+    @Query('cursor') cursor?: string,
+    @Query('limit') rawLimit?: string,
+  ) {
+    const limit = rawLimit === undefined ? 30 : Number(rawLimit);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+      throw new BadRequestException('limit must be an integer between 1 and 100');
+    }
+    return this.ledger.getLedger(houseId, { cursor, limit });
   }
 }
 

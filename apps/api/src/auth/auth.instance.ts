@@ -1,9 +1,47 @@
 import { randomUUID } from 'node:crypto';
 import { betterAuth } from 'better-auth';
+import { APIError, createAuthMiddleware } from 'better-auth/api';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { magicLink } from 'better-auth/plugins';
 import { createDb, schema } from '@homi/db';
 import { getSharedPool } from '../db.pool';
+import { getRateLimiter } from '../ratelimit/rate-limiter';
+
+// HOMI-24: the magic-link endpoint is an unauthenticated email-send
+// loop (review M6). Budgets are per target inbox first (bombing one
+// address) and per source IP second (rotating addresses to burn email
+// quota). Fifteen-minute windows match the link TTL order of magnitude.
+const MAGIC_LINK_WINDOW_SEC = 15 * 60;
+const MAGIC_LINK_PER_EMAIL = 3;
+const MAGIC_LINK_PER_IP = 30;
+
+function requestIp(request: Request | undefined): string | undefined {
+  // set by the load balancer in any deployed environment; absent in
+  // local direct connections, where the per-email budget still applies
+  const forwarded = request?.headers.get('x-forwarded-for');
+  return forwarded?.split(',')[0]?.trim() || undefined;
+}
+
+const magicLinkRateLimit = createAuthMiddleware(async (ctx) => {
+  if (ctx.path !== '/sign-in/magic-link') return;
+  const email = typeof ctx.body?.email === 'string' ? ctx.body.email.toLowerCase() : undefined;
+  const ip = requestIp(ctx.request);
+  const limiter = getRateLimiter();
+  const decisions = await Promise.all([
+    email
+      ? limiter.consume(`ml:email:${email}`, MAGIC_LINK_PER_EMAIL, MAGIC_LINK_WINDOW_SEC)
+      : undefined,
+    ip ? limiter.consume(`ml:ip:${ip}`, MAGIC_LINK_PER_IP, MAGIC_LINK_WINDOW_SEC) : undefined,
+  ]);
+  const blocked = decisions.find((d) => d && !d.allowed);
+  if (blocked) {
+    throw new APIError(
+      'TOO_MANY_REQUESTS',
+      { message: 'Too many sign-in emails requested; try again later' },
+      { 'Retry-After': String(blocked.retryAfterSec) },
+    );
+  }
+});
 
 /**
  * Better Auth (HOMI-2, decision D3): auth library runs inside our
@@ -51,6 +89,9 @@ function buildAuth() {
     },
     emailAndPassword: { enabled: false },
     socialProviders,
+    hooks: {
+      before: magicLinkRateLimit,
+    },
     plugins: [
       magicLink({
         sendMagicLink: async ({ email, url }) => {

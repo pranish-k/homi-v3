@@ -8,6 +8,7 @@ import {
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { schema, type Db } from '@homi/db';
 import { DB } from '../db.module';
+import { RealtimeService } from '../realtime/realtime.service';
 
 const INVITE_TTL_DAYS = 7;
 
@@ -15,7 +16,10 @@ const hashToken = (token: string) => createHash('sha256').update(token).digest('
 
 @Injectable()
 export class InvitesService {
-  constructor(@Inject(DB) private readonly db: Db) {}
+  constructor(
+    @Inject(DB) private readonly db: Db,
+    private readonly realtime: RealtimeService,
+  ) {}
 
   /** HOMI-8: invite links, not codes (spec 4.3). Raw token is returned once; only the hash is stored. */
   async createInvite(houseId: string, actorId: string) {
@@ -53,7 +57,7 @@ export class InvitesService {
    * transaction, so concurrent accepts can never overshoot max_uses.
    */
   async acceptInvite(token: string, userId: string) {
-    return this.db.transaction(async (tx) => {
+    const result = await this.db.transaction(async (tx) => {
       const [invite] = await tx
         .select()
         .from(schema.invites)
@@ -116,5 +120,13 @@ export class InvitesService {
       });
       return { houseId: invite.houseId, alreadyMember: false };
     });
+    if (!result.alreadyMember) {
+      this.realtime.publish(result.houseId, {
+        type: 'member.joined',
+        entityType: 'member',
+        entityId: userId,
+      });
+    }
+    return result;
   }
 }

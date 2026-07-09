@@ -2,10 +2,17 @@ import { Body, Controller, Get, Param, Post, Put, Req, UseGuards } from '@nestjs
 import { z } from 'zod';
 import { AuthGuard, type AuthedRequest } from '../auth/auth.guard';
 import { HouseMemberGuard } from '../auth/house-member.guard';
+import { RateLimit, RateLimitGuard } from '../ratelimit/rate-limit.guard';
 import { parseBody } from '../lib/validation';
 import { HousesService } from './houses.service';
 import { InvitesService } from './invites.service';
 import { RoomsService } from './rooms.service';
+import { SnapshotService } from './snapshot.service';
+
+// HOMI-24: invites gate house membership, so both creating and
+// accepting are budgeted per user. Generous for humans, hostile to
+// scripts enumerating tokens or spraying links.
+const INVITE_RULE = { limit: 20, windowSec: 60 * 60 };
 
 const createHouseSchema = z.object({
   name: z.string().min(1).max(100),
@@ -33,6 +40,7 @@ export class HousesController {
     private readonly houses: HousesService,
     private readonly invites: InvitesService,
     private readonly rooms: RoomsService,
+    private readonly snapshot: SnapshotService,
   ) {}
 
   @Post()
@@ -41,8 +49,16 @@ export class HousesController {
     return this.houses.createHouse(req.userId, input);
   }
 
-  @Post(':houseId/invites')
+  /** HOMI-20: the HOME tab in one call; the refetch target for realtime hints (H6). */
+  @Get(':houseId/snapshot')
   @UseGuards(HouseMemberGuard)
+  async getSnapshot(@Req() req: AuthedRequest, @Param('houseId') houseId: string) {
+    return this.snapshot.getSnapshot(houseId, req.userId);
+  }
+
+  @Post(':houseId/invites')
+  @UseGuards(HouseMemberGuard, RateLimitGuard)
+  @RateLimit({ bucket: 'invite:create', ...INVITE_RULE })
   async createInvite(@Req() req: AuthedRequest, @Param('houseId') houseId: string) {
     return this.invites.createInvite(houseId, req.userId);
   }
@@ -71,6 +87,8 @@ export class InvitesController {
   constructor(private readonly invites: InvitesService) {}
 
   @Post(':token/accept')
+  @UseGuards(RateLimitGuard)
+  @RateLimit({ bucket: 'invite:accept', ...INVITE_RULE })
   async accept(@Req() req: AuthedRequest, @Param('token') token: string) {
     return this.invites.acceptInvite(token, req.userId);
   }
