@@ -44,8 +44,20 @@ jobs:
           --health-interval 5s
           --health-timeout 3s
           --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
     env:
       DATABASE_URL: postgres://homi:homi@localhost:5432/homi
+      # exercises the Redis-backed realtime fan-out and rate limits
+      # (HOMI-17, HOMI-24); without REDIS_URL the suite covers the
+      # in-process fallbacks instead
+      REDIS_URL: redis://localhost:6379
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
