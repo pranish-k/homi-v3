@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { APP_FILTER } from '@nestjs/core';
 import { DbModule } from './db.module';
 import { MembershipService } from './auth/membership.service';
+import { DevController } from './dev/dev.controller';
 import { HealthController } from './health/health.controller';
 import { HousesController, InvitesController } from './houses/houses.controller';
 import { HousesService } from './houses/houses.service';
@@ -22,6 +23,8 @@ import { RealtimeService } from './realtime/realtime.service';
     InvitesController,
     LedgerController,
     PaymentsController,
+    // DEMO BRANCH ONLY: /dev/sign-in refuses to exist in production
+    ...(process.env.NODE_ENV === 'production' ? [] : [DevController]),
   ],
   providers: [
     HousesService,

@@ -12,7 +12,9 @@ import { getRateLimiter } from '../ratelimit/rate-limiter';
 // address) and per source IP second (rotating addresses to burn email
 // quota). Fifteen-minute windows match the link TTL order of magnitude.
 const MAGIC_LINK_WINDOW_SEC = 15 * 60;
-const MAGIC_LINK_PER_EMAIL = 3;
+// DEMO BRANCH ONLY: overridable so demo user-switching does not exhaust
+// the per-email budget (the demo:api script sets it to 100)
+const MAGIC_LINK_PER_EMAIL = Number(process.env.MAGIC_LINK_PER_EMAIL ?? 3);
 const MAGIC_LINK_PER_IP = 30;
 
 function requestIp(request: Request | undefined): string | undefined {
@@ -78,6 +80,9 @@ function buildAuth() {
 
   return betterAuth({
     baseURL: process.env.BETTER_AUTH_URL ?? 'http://localhost:3000',
+    // DEMO BRANCH ONLY: the Vite dev server proxies to the API, so auth
+    // POSTs arrive with the web app's origin
+    trustedOrigins: isProduction ? [] : ['http://localhost:5173'],
     secret: secret ?? 'homi-dev-secret-do-not-use-in-prod',
     database: drizzleAdapter(db, {
       provider: 'pg',

@@ -1,0 +1,110 @@
+:root {
+  color-scheme: light dark;
+  font-family: system-ui, sans-serif;
+}
+body {
+  margin: 0 auto;
+  max-width: 720px;
+  padding: 1rem;
+  line-height: 1.45;
+}
+header {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+  flex-wrap: wrap;
+  border-bottom: 1px solid #8884;
+  padding-bottom: 0.5rem;
+}
+h1 {
+  font-size: 1.3rem;
+  margin: 0;
+}
+h2 {
+  margin: 0.75rem 0 0.25rem;
+}
+h3 {
+  margin: 0.75rem 0 0.25rem;
+  font-size: 1rem;
+}
+.who {
+  font-weight: 600;
+}
+.switch {
+  margin-left: auto;
+  font-size: 0.85rem;
+  display: flex;
+  gap: 0.35rem;
+  align-items: center;
+}
+button {
+  cursor: pointer;
+  padding: 0.25rem 0.7rem;
+  border-radius: 6px;
+  border: 1px solid #8886;
+  background: #8881;
+}
+button:hover {
+  background: #8883;
+}
+nav.houses button.active {
+  font-weight: 700;
+}
+.login {
+  text-align: center;
+  padding-top: 4rem;
+}
+.userButtons button {
+  font-size: 1.2rem;
+  margin: 0.5rem;
+  padding: 0.6rem 1.4rem;
+}
+.error {
+  color: #c0392b;
+}
+.hint {
+  color: #888;
+  font-size: 0.85rem;
+}
+ul {
+  margin: 0.25rem 0;
+  padding-left: 1.2rem;
+}
+.forms {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+.card {
+  border: 1px solid #8884;
+  border-radius: 8px;
+  padding: 0.75rem;
+  flex: 1;
+  min-width: 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.card input,
+.card select {
+  padding: 0.3rem 0.5rem;
+  border-radius: 6px;
+  border: 1px solid #8886;
+}
+.live {
+  margin-left: 0.5rem;
+  font-size: 0.8rem;
+  color: #888;
+}
+.live-on {
+  color: #27ae60;
+}
+.live-flash {
+  color: #f1c40f;
+}
+.ledger li.payment {
+  opacity: 0.85;
+}
+.feed {
+  font-size: 0.9rem;
+}
