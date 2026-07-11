@@ -1,6 +1,20 @@
 # HOMI v3 Progress
 
-**Last updated:** 2026-07-09 (post-review hardening)
+**Last updated:** 2026-07-11 (demo detour noted)
+
+## Demo detour (2026-07-11)
+
+Branch `demo/web` (on GitHub) carries a throwaway browser demo: a Vite + React SPA against the real local API, with three hardcoded test users signed in through a dev-only endpoint that replays the logged magic link.
+It exists to click through the R1 surface on a laptop before Sprint 4; it never merges, and R1 work continues on `main` as if nothing happened.
+Switching:
+
+```bash
+git checkout demo/web && npm ci   # work on the demo (see DEMO.md there)
+git checkout main && npm ci       # back to the real project
+git branch --show-current         # see where you are
+```
+
+
 **Phase:** R1 Money Core (weeks 1-12, committed scope)
 **Repo:** https://github.com/pranish-k/homi-v3 · tag `v0.3.0-sprint3` + review fixes (`312f7ad`) · CI: green (main and tag runs)
 
