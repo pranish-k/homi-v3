@@ -9,12 +9,13 @@ const USERS = [
   { name: 'Chloe', email: 'chloe@demo.homi' },
 ];
 
-async function req(path, { method = 'GET', body, cookie, idempotent = false } = {}) {
+async function req(path, { method = 'GET', body, cookie, idempotent = false, origin } = {}) {
   const res = await fetch(`${API}${path}`, {
     method,
     headers: {
       'content-type': 'application/json',
       ...(cookie ? { cookie } : {}),
+      ...(origin ? { origin } : {}),
       ...(idempotent ? { 'idempotency-key': crypto.randomUUID() } : {}),
     },
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -26,18 +27,25 @@ async function req(path, { method = 'GET', body, cookie, idempotent = false } = 
   return res;
 }
 
-async function signIn(email) {
+async function signIn({ name, email }) {
   const send = await req('/dev/sign-in', { method: 'POST', body: { email } });
   const { verifyUrl } = await send.json();
   const verify = await req(verifyUrl, {});
   const setCookies = verify.headers.getSetCookie();
   const cookie = setCookies.map((c) => c.split(';')[0]).join('; ');
+  // magic-link signup leaves name empty; Better Auth wants an Origin here
+  await req('/api/auth/update-user', {
+    method: 'POST',
+    cookie,
+    body: { name },
+    origin: API,
+  });
   const me = await (await req('/api/auth/get-session', { cookie })).json();
-  console.log(`signed in ${email} (${me.user.id.slice(0, 8)})`);
+  console.log(`signed in ${email} as ${me.user.name} (${me.user.id.slice(0, 8)})`);
   return { cookie, userId: me.user.id, email };
 }
 
-const [ana, ben, chloe] = await Promise.all(USERS.map((u) => signIn(u.email)));
+const [ana, ben, chloe] = await Promise.all(USERS.map((u) => signIn(u)));
 
 const house = await (
   await req('/v1/houses', {

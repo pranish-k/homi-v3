@@ -46,8 +46,10 @@ export function HouseView({ house, me }: { house: House; me: SessionUser }) {
 
   if (!snapshot) return <p className="hint">loading…</p>;
 
-  const name = (id: string) =>
-    snapshot.members.find((m) => m.userId === id)?.name ?? id.slice(0, 8);
+  const name = (id: string) => {
+    const m = snapshot.members.find((mem) => mem.userId === id);
+    return m?.displayName || m?.name || id.slice(0, 8);
+  };
   const cur = snapshot.house.currency;
 
   async function loadMore() {
@@ -82,7 +84,7 @@ export function HouseView({ house, me }: { house: House; me: SessionUser }) {
         <ul>
           {snapshot.members.map((m) => (
             <li key={m.userId}>
-              {m.name} {m.role === 'admin' ? '(admin)' : ''}{' '}
+              {name(m.userId)} {m.role === 'admin' ? '(admin)' : ''}{' '}
               {m.userId === me.id ? <em>— you</em> : ''}
             </li>
           ))}
