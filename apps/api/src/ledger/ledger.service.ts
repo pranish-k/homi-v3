@@ -39,6 +39,9 @@ export interface CreateExpenseInput {
   weightsBp?: Record<string, number>;
 }
 
+/** HOMI-12: an edit is a full respec of the expense; currency stays the house's. */
+export type EditExpenseInput = Omit<CreateExpenseInput, 'currency'>;
+
 @Injectable()
 export class LedgerService {
   constructor(
@@ -78,60 +81,7 @@ export class LedgerService {
           throw new BadRequestException(`This house keeps its ledger in ${house.currency}`);
         }
 
-        const involved = [...new Set([...input.participants, input.paidBy])];
-        const activeMembers = await tx
-          .select({ userId: schema.houseMembers.userId })
-          .from(schema.houseMembers)
-          .where(
-            and(
-              eq(schema.houseMembers.houseId, houseId),
-              inArray(schema.houseMembers.userId, involved),
-              isNull(schema.houseMembers.leftAt),
-            ),
-          );
-        if (activeMembers.length !== involved.length) {
-          throw new BadRequestException('Payer and all participants must be active house members');
-        }
-
-        // HOMI-10: room-weighted splits are derived server-side from room
-        // assignments; clients cannot supply their own weights (spec 5.3:
-        // clients never compute state).
-        let weightsBp = input.weightsBp;
-        if (input.mode === 'room_weighted') {
-          if (weightsBp) {
-            throw new BadRequestException('room_weighted splits are derived from rooms; do not send weightsBp');
-          }
-          const assignments = await tx
-            .select({ userId: schema.houseMembers.userId, weightBp: schema.rooms.weightBp })
-            .from(schema.houseMembers)
-            .innerJoin(schema.rooms, eq(schema.rooms.id, schema.houseMembers.roomId))
-            .where(
-              and(
-                eq(schema.houseMembers.houseId, houseId),
-                inArray(schema.houseMembers.userId, input.participants),
-                isNull(schema.houseMembers.leftAt),
-              ),
-            );
-          if (assignments.length !== input.participants.length) {
-            throw new BadRequestException('Every participant needs a room for a room-weighted split');
-          }
-          weightsBp = Object.fromEntries(assignments.map((a) => [a.userId, a.weightBp]));
-        }
-
-        let splits: Record<string, number>;
-        try {
-          splits = computeSplits({
-            totalCents: input.amountCents,
-            paidBy: input.paidBy,
-            mode: input.mode,
-            participants: input.participants,
-            exactCents: input.exactCents,
-            weightsBp,
-          });
-        } catch (err) {
-          if (err instanceof SplitError) throw new BadRequestException(err.message);
-          throw err;
-        }
+        const splits = await this.resolveSplits(tx, houseId, input);
 
         const [expense] = await tx
           .insert(schema.expenses)
@@ -177,6 +127,185 @@ export class LedgerService {
         return { status: 201, body };
       });
       return result;
+    } catch (err) {
+      if (isUniqueViolation(err)) {
+        const stored = await this.findStoredResponse(idempotencyKey, userId, endpoint, requestHash);
+        if (stored) return stored;
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * The one place splits are derived from a request (create and edit
+   * both call it): payer and participants must be active members, and
+   * room-weighted weights come from room assignments server-side -
+   * clients cannot supply their own (spec 5.3: clients never compute
+   * state).
+   */
+  private async resolveSplits(
+    tx: DbConn,
+    houseId: string,
+    input: Omit<CreateExpenseInput, 'description' | 'currency' | 'category' | 'isStaple'>,
+  ): Promise<Record<string, number>> {
+    const involved = [...new Set([...input.participants, input.paidBy])];
+    const activeMembers = await tx
+      .select({ userId: schema.houseMembers.userId })
+      .from(schema.houseMembers)
+      .where(
+        and(
+          eq(schema.houseMembers.houseId, houseId),
+          inArray(schema.houseMembers.userId, involved),
+          isNull(schema.houseMembers.leftAt),
+        ),
+      );
+    if (activeMembers.length !== involved.length) {
+      throw new BadRequestException('Payer and all participants must be active house members');
+    }
+
+    let weightsBp = input.weightsBp;
+    if (input.mode === 'room_weighted') {
+      if (weightsBp) {
+        throw new BadRequestException('room_weighted splits are derived from rooms; do not send weightsBp');
+      }
+      const assignments = await tx
+        .select({ userId: schema.houseMembers.userId, weightBp: schema.rooms.weightBp })
+        .from(schema.houseMembers)
+        .innerJoin(schema.rooms, eq(schema.rooms.id, schema.houseMembers.roomId))
+        .where(
+          and(
+            eq(schema.houseMembers.houseId, houseId),
+            inArray(schema.houseMembers.userId, input.participants),
+            isNull(schema.houseMembers.leftAt),
+          ),
+        );
+      if (assignments.length !== input.participants.length) {
+        throw new BadRequestException('Every participant needs a room for a room-weighted split');
+      }
+      weightsBp = Object.fromEntries(assignments.map((a) => [a.userId, a.weightBp]));
+    }
+
+    try {
+      return computeSplits({
+        totalCents: input.amountCents,
+        paidBy: input.paidBy,
+        mode: input.mode,
+        participants: input.participants,
+        exactCents: input.exactCents,
+        weightsBp,
+      });
+    } catch (err) {
+      if (err instanceof SplitError) throw new BadRequestException(err.message);
+      throw err;
+    }
+  }
+
+  /**
+   * HOMI-12: money truth is append-only (spec 5.4 invariant 1). An edit
+   * replaces the head in place but first snapshots the entire previous
+   * state - expense fields AND splits - into expense_revisions, in the
+   * same transaction. Splits are recomputed through the same domain
+   * function as creation (invariant 3: one split math), and the house
+   * finds out via expense.edited in the feed.
+   */
+  async editExpense(
+    expenseId: string,
+    userId: string,
+    idempotencyKey: string,
+    input: EditExpenseInput,
+  ): Promise<{ status: number; body: unknown }> {
+    const endpoint = 'PUT /v1/expenses/:expenseId';
+    const requestHash = hashRequest({ expenseId, input });
+    const replayed = await this.findStoredResponse(idempotencyKey, userId, endpoint, requestHash);
+    if (replayed) return replayed;
+
+    try {
+      return await this.activity.transact(async (tx, log) => {
+        const [expense] = await tx
+          .select()
+          .from(schema.expenses)
+          .where(eq(schema.expenses.id, expenseId))
+          .for('update');
+        if (!expense || expense.deletedAt !== null) throw new NotFoundException('Expense not found');
+
+        // H9: authorization against CURRENT membership of the expense's house
+        const [editor] = await tx
+          .select({ userId: schema.houseMembers.userId })
+          .from(schema.houseMembers)
+          .where(
+            and(
+              eq(schema.houseMembers.houseId, expense.houseId),
+              eq(schema.houseMembers.userId, userId),
+              isNull(schema.houseMembers.leftAt),
+            ),
+          );
+        if (!editor) throw new NotFoundException('Expense not found');
+
+        const previousSplits = await tx
+          .select({ userId: schema.expenseSplits.userId, amountCents: schema.expenseSplits.amountCents })
+          .from(schema.expenseSplits)
+          .where(eq(schema.expenseSplits.expenseId, expenseId));
+
+        await tx.insert(schema.expenseRevisions).values({
+          expenseId,
+          changedBy: userId,
+          previous: {
+            expense: {
+              description: expense.description,
+              amountCents: expense.amountCents,
+              currency: expense.currency,
+              paidBy: expense.paidBy,
+              category: expense.category,
+              isStaple: expense.isStaple,
+            },
+            splits: Object.fromEntries(previousSplits.map((s) => [s.userId, s.amountCents])),
+          },
+        });
+
+        const splits = await this.resolveSplits(tx, expense.houseId, input);
+
+        const [updated] = await tx
+          .update(schema.expenses)
+          .set({
+            description: input.description,
+            amountCents: input.amountCents,
+            paidBy: input.paidBy,
+            category: input.category ?? null,
+            isStaple: input.isStaple ?? false,
+          })
+          .where(eq(schema.expenses.id, expenseId))
+          .returning();
+        if (!updated) throw new Error('update returned no row');
+
+        await tx.delete(schema.expenseSplits).where(eq(schema.expenseSplits.expenseId, expenseId));
+        await tx.insert(schema.expenseSplits).values(
+          Object.entries(splits).map(([splitUserId, amountCents]) => ({
+            expenseId,
+            userId: splitUserId,
+            amountCents,
+          })),
+        );
+
+        await log({
+          houseId: expense.houseId,
+          actorId: userId,
+          type: 'expense.edited',
+          entityType: 'expense',
+          entityId: expenseId,
+          payload: { amountCents: updated.amountCents, description: updated.description },
+        });
+
+        const body = { expense: updated, splits };
+        await tx.insert(schema.idempotencyKeys).values({
+          key: idempotencyKey,
+          userId,
+          endpoint,
+          requestHash,
+          responseStatus: 200,
+          responseBody: body,
+        });
+        return { status: 200, body };
+      });
     } catch (err) {
       if (isUniqueViolation(err)) {
         const stored = await this.findStoredResponse(idempotencyKey, userId, endpoint, requestHash);
@@ -325,6 +454,62 @@ export class LedgerService {
         entityId: paymentId,
       });
       return { payment: disputedPayment };
+    });
+  }
+
+  /**
+   * HOMI-29 (decided 2026-07-13): only the recipient can resolve their
+   * own dispute, mirroring HOMI-11's single-sided philosophy - the
+   * protected party holds the pen. Resolving means "the payment did
+   * happen after all": disputed -> resolved, and computeBalances counts
+   * it again. Standing firm needs no endpoint: the payment stays
+   * disputed and the payer re-records correctly. No time window - a
+   * dispute can be resolved whenever the roommates sort it out. Guarded
+   * in SQL like the dispute itself (H2).
+   */
+  async resolvePayment(paymentId: string, userId: string) {
+    return this.activity.transact(async (tx, log) => {
+      const [payment] = await tx
+        .select()
+        .from(schema.payments)
+        .where(eq(schema.payments.id, paymentId))
+        .for('update');
+      if (!payment) throw new NotFoundException('Payment not found');
+
+      const [membership] = await tx
+        .select({ userId: schema.houseMembers.userId })
+        .from(schema.houseMembers)
+        .where(
+          and(
+            eq(schema.houseMembers.houseId, payment.houseId),
+            eq(schema.houseMembers.userId, userId),
+            isNull(schema.houseMembers.leftAt),
+          ),
+        );
+      if (!membership) throw new NotFoundException('Payment not found');
+      if (payment.toUser !== userId) {
+        throw new ForbiddenException('Only the payment recipient can resolve their dispute');
+      }
+      if (payment.status !== 'disputed') {
+        throw new BadRequestException('Only a disputed payment can be resolved');
+      }
+
+      const updated = await tx
+        .update(schema.payments)
+        .set({ status: 'resolved', resolvedAt: new Date() })
+        .where(and(eq(schema.payments.id, paymentId), eq(schema.payments.status, 'disputed')))
+        .returning();
+      const resolvedPayment = updated[0];
+      if (!resolvedPayment) throw new BadRequestException('Only a disputed payment can be resolved');
+
+      await log({
+        houseId: payment.houseId,
+        actorId: userId,
+        type: 'payment.resolved',
+        entityType: 'payment',
+        entityId: paymentId,
+      });
+      return { payment: resolvedPayment };
     });
   }
 

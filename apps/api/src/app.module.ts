@@ -11,7 +11,7 @@ import { MembersService } from './houses/members.service';
 import { RoomsService } from './houses/rooms.service';
 import { SnapshotService } from './houses/snapshot.service';
 import { BillsService } from './ledger/bills.service';
-import { LedgerController, PaymentsController } from './ledger/ledger.controller';
+import { ExpensesController, LedgerController, PaymentsController } from './ledger/ledger.controller';
 import { LedgerService } from './ledger/ledger.service';
 import { RateLimitFilter } from './ratelimit/rate-limit.filter';
 import { RealtimeGateway } from './realtime/realtime.gateway';
@@ -25,6 +25,7 @@ import { RealtimeService } from './realtime/realtime.service';
     InvitesController,
     LedgerController,
     PaymentsController,
+    ExpensesController,
   ],
   providers: [
     ActivityService,

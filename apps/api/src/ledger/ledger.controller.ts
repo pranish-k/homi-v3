@@ -7,6 +7,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
   Req,
   Res,
@@ -39,6 +40,8 @@ const createExpenseSchema = z.object({
     .optional(),
   weightsBp: z.record(z.string().uuid(), z.number().int().nonnegative().max(10000)).optional(),
 });
+
+const editExpenseSchema = createExpenseSchema.omit({ currency: true });
 
 const recordPaymentSchema = z.object({
   toUser: z.string().uuid(),
@@ -162,6 +165,39 @@ export class PaymentsController {
   /** Membership and recipient checks happen in the service against the payment's house (H9). */
   @Post(':paymentId/dispute')
   async dispute(@Req() req: AuthedRequest, @Param('paymentId') paymentId: string) {
+    // a non-UUID id must 400 here, not surface as a Postgres cast error
+    if (!UUID_RE.test(paymentId)) throw new BadRequestException('paymentId must be a UUID');
     return this.ledger.disputePayment(paymentId, req.userId);
+  }
+
+  /** HOMI-29: the recipient confirms a disputed payment did happen; it counts in balances again. */
+  @Post(':paymentId/resolve')
+  async resolve(@Req() req: AuthedRequest, @Param('paymentId') paymentId: string) {
+    if (!UUID_RE.test(paymentId)) throw new BadRequestException('paymentId must be a UUID');
+    return this.ledger.resolvePayment(paymentId, req.userId);
+  }
+}
+
+@Controller('v1/expenses')
+@UseGuards(AuthGuard)
+export class ExpensesController {
+  constructor(private readonly ledger: LedgerService) {}
+
+  /** HOMI-12: full respec; membership is checked in the service against the expense's house (H9). */
+  @Put(':expenseId')
+  async edit(
+    @Req() req: AuthedRequest,
+    @Res() res: Response,
+    @Param('expenseId') expenseId: string,
+    @Headers('idempotency-key') idempotencyKey: string | undefined,
+    @Body() body: unknown,
+  ) {
+    if (!idempotencyKey || !UUID_RE.test(idempotencyKey)) {
+      throw new BadRequestException('Idempotency-Key header (UUID) is required on money mutations');
+    }
+    if (!UUID_RE.test(expenseId)) throw new BadRequestException('expenseId must be a UUID');
+    const input = parseBody(editExpenseSchema, body);
+    const result = await this.ledger.editExpense(expenseId, req.userId, idempotencyKey, input);
+    res.status(result.status).json(result.body);
   }
 }
