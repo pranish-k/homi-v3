@@ -29,6 +29,13 @@
       "when": 1783529922602,
       "tag": "0003_ledger_pagination",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1783985326361,
+      "tag": "0004_recurring_bills",
+      "breakpoints": true
     }
   ]
 }

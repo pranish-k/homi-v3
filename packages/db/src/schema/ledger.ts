@@ -11,6 +11,7 @@ import {
   primaryKey,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
 import { houses, users } from './identity';
@@ -35,6 +36,11 @@ export const expenses = pgTable(
     isStaple: boolean('is_staple').notNull().default(false),
     receiptPath: text('receipt_path'),
     templateId: uuid('template_id'),
+    // HOMI-13 (H4): which billing period a template posting covers,
+    // e.g. '2026-07' (monthly) or '2026-07-06' (weekly, the due date).
+    // Set only on template postings; the partial unique index below is
+    // what makes a re-run job unable to double-post rent.
+    period: text('period'),
     createdBy: uuid('created_by')
       .notNull()
       .references(() => users.id),
@@ -50,6 +56,11 @@ export const expenses = pgTable(
     // keyset pagination on (created_at, id)
     index('idx_expenses_house_created').on(t.houseId, t.createdAt, t.id),
     check('chk_expenses_amount_positive', sql`${t.amountCents} > 0`),
+    // deliberately NOT filtered on deleted_at: deleting a posted bill
+    // must not resurrect the period for a re-posting job
+    uniqueIndex('uq_expenses_template_period')
+      .on(t.templateId, t.period)
+      .where(sql`${t.templateId} is not null`),
   ],
 );
 
@@ -83,23 +94,35 @@ export const expenseRevisions = pgTable('expense_revisions', {
   previous: jsonb('previous').notNull(),
 });
 
-export const billTemplates = pgTable('bill_templates', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  houseId: uuid('house_id')
-    .notNull()
-    .references(() => houses.id),
-  description: text('description').notNull(),
-  amountCents: bigint('amount_cents', { mode: 'number' }).notNull(),
-  ownerId: uuid('owner_id')
-    .notNull()
-    .references(() => users.id),
-  splitMode: text('split_mode').notNull(), // equal | exact | percent | room_weighted
-  splitConfig: jsonb('split_config'),
-  cadence: text('cadence').notNull(), // monthly | weekly
-  cadenceDay: text('cadence_day').notNull(),
-  nextRun: date('next_run').notNull(),
-  active: boolean('active').notNull().default(true),
-});
+export const billTemplates = pgTable(
+  'bill_templates',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    houseId: uuid('house_id')
+      .notNull()
+      .references(() => houses.id),
+    description: text('description').notNull(),
+    amountCents: bigint('amount_cents', { mode: 'number' }).notNull(),
+    ownerId: uuid('owner_id')
+      .notNull()
+      .references(() => users.id),
+    splitMode: text('split_mode').notNull(), // equal | exact | percent | room_weighted
+    splitConfig: jsonb('split_config'),
+    cadence: text('cadence').notNull(), // monthly | weekly
+    cadenceDay: text('cadence_day').notNull(),
+    nextRun: date('next_run').notNull(),
+    active: boolean('active').notNull().default(true),
+    createdBy: uuid('created_by')
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // the worker's due scan: active templates ordered by next_run
+    index('idx_bill_templates_due').on(t.nextRun).where(sql`${t.active}`),
+    check('chk_bill_templates_amount_positive', sql`${t.amountCents} > 0`),
+  ],
+);
 
 export const payments = pgTable(
   'payments',
