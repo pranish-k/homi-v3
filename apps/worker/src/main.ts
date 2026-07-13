@@ -13,8 +13,10 @@
 import { createDb, createPool } from '@homi/db';
 import { Redis } from 'ioredis';
 import { postDueBills, type PublishHint } from './bills/post-due-bills';
+import { DEFAULT_RETENTION_DAYS, pruneIdempotencyKeys } from './prune/prune-idempotency-keys';
 
 const POLL_INTERVAL_MS = 60_000;
+const PRUNE_INTERVAL_MS = 60 * 60_000;
 
 function buildPublisher(): { publish: PublishHint; close: () => Promise<void> } {
   const url = process.env.REDIS_URL;
@@ -69,12 +71,30 @@ async function main(): Promise<void> {
     }
   };
 
+  // HOMI-26: hourly retention pass; the env override exists for tests
+  // and emergencies, not tuning
+  const retentionDays = process.env.IDEMPOTENCY_RETENTION_DAYS
+    ? Number(process.env.IDEMPOTENCY_RETENTION_DAYS)
+    : DEFAULT_RETENTION_DAYS;
+  const prune = async () => {
+    if (stopping) return;
+    try {
+      const { deleted } = await pruneIdempotencyKeys(db, retentionDays);
+      if (deleted > 0) console.log(`[prune] removed ${deleted} idempotency keys`);
+    } catch (err) {
+      console.error('[prune] failed', err);
+    }
+  };
+
   const interval = setInterval(() => void tick(), POLL_INTERVAL_MS);
+  const pruneInterval = setInterval(() => void prune(), PRUNE_INTERVAL_MS);
   void tick();
+  void prune();
 
   const shutdown = async () => {
     stopping = true;
     clearInterval(interval);
+    clearInterval(pruneInterval);
     await publisher.close();
     await pool.end();
     process.exit(0);
