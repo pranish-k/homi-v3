@@ -1,6 +1,6 @@
 # HOMI v3 Progress
 
-**Last updated:** 2026-07-13 (demo detour findings backlogged)
+**Last updated:** 2026-07-13 (HOMI-28 shipped; demo detour findings backlogged)
 
 ## Demo detour (2026-07-11)
 
@@ -34,6 +34,13 @@ The API itself checked out: balances, pairwise netting, dispute guards, and idem
 - MEDIUM: getLedger read expenses and payments in two auto-commit statements (the torn-read pattern HOMI-25 fixed in getBalances); now one repeatable-read snapshot
 - Cleanups: house.created now publishes like every other event; publish ids derive from transaction results; lastMagicLink bounded; rate-limit tests reset warm Redis budgets
 - Accepted for later: getBalances folds full history per call (Redis hot cache is the spec plan); publish-per-method refactor to derive hints from activity_events (queued Sprint 4); WS membership recheck (no member-removal endpoint exists yet)
+
+## Done (HOMI-28 member names, 2026-07-13)
+
+- Magic-link sign-up accepts an optional name applied on first registration only; the contract is pinned by integration tests (a later sign-in with a different name cannot rename the account) [HOMI-28]
+- PATCH /v1/houses/:houseId/members/me sets or clears the per-house display_name: HouseMemberGuard, transactional with a row lock, emits member.renamed + realtime hint only when the value actually changes
+- 6 new integration tests (32 total): sign-up capture, name immutability, set/clear via snapshot, feed-event dedup, validation bounds, cross-house 403
+- HOMI-29 (dispute resolution) decided but not built: recipient-only resolves (confirm -> resolved counts again, or stand firm and the payer re-records); see backlog
 
 ## Done (Sprint 3, 2026-07-08)
 
