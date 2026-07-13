@@ -37,4 +37,22 @@ Committed: 18 points.
 
 ## Sprint review notes (filled at close)
 
+All three committed stories done, plus the HOMI-26 stretch: 20 points.
+HOMI-13 landed hazards-first as planned: migration 0004 created the partial unique index on (template_id, period) and the pure schedule math (nextDueDate with monthly clamping and 'last', weekly weekdays, periodKey, todayInTimezone) shipped with 13 domain tests including property tests before any worker code existed.
+The worker's postDueBills polls active templates every 60 seconds and posts each due period as an ordinary expense in one transaction; H4 is the database's guarantee, not the scheduler's - a re-run, a crashed run resumed, or a second worker instance trips the unique index, heals next_run, and moves on.
+Due-ness is the house-local DATE (H5), which sidesteps DST wall-clock hazards entirely; the Kiritimati-vs-New-York test pins the boundary.
+Bills that cannot post (owner left, vacant room breaking the weight sum, broken timezone) pause with a bill.paused feed event instead of hot-looping; resuming recomputes next_run so paused periods are consciously skipped, never back-posted.
+The API grew POST/GET/PATCH bills endpoints (idempotency-keyed create, owner-or-admin pause/resume) limited to equal and room_weighted modes; participants derive at posting time.
+The queued refactor landed first, so every new mutation was born on it: ActivityService.transact writes the feed event and publishes its hint after commit, replacing hand-placed publish calls at what were six drift-prone call sites.
+HOMI-12: PUT /v1/expenses/:expenseId snapshots the previous expense fields AND splits into expense_revisions in the same transaction, recomputes splits through the same resolveSplits path as creation, and notifies via expense.edited.
+HOMI-29: POST /v1/payments/:paymentId/resolve, recipient-only, SQL-guarded disputed -> resolved; computeBalances already counted resolved, so the whole story was one guarded state transition plus tests.
+HOMI-26 (stretch): hourly worker pass deletes idempotency keys past a 30-day window, batched, refusing nonsensical windows.
+The integration suite grew from 32 to 51 tests (41 API + 10 worker; the worker workspace got its own vitest harness seeding Postgres directly), all passing with and without REDIS_URL; the CI migration drift check passes.
+
+Review gate (inline): found and fixed one real bug class - HouseMemberGuard accepted non-UUID houseIds and every house-scoped HTTP route turned a garbage id into a Postgres cast error 500 (the same class the Sprint 3 review fixed on the WS path); payment and bill entity routes gained the same guard.
+
 ## Retrospective
+
+**Went well:** hazards-first ordering meant the unique key and the schedule math existed and were tested before the worker was written, so the worker's failure paths were designed against real guarantees; landing the activity-events refactor before the sprint's features meant every new mutation used the one publish mechanism from birth; giving the worker its own integration harness (direct Postgres seeding, no HTTP) kept its tests fast and honest.
+**Needs improvement:** the UUID-cast bug class has now been fixed three times in three shapes (WS path, entity routes, house guard); the lesson is that validation belongs at the boundary layer by default, not per-route as each review finds one.
+**Action:** Sprint 5 should open with HOMI-9 (placeholder roommates) as the centerpiece it deserves, and HOMI-21/HOMI-14 (email + deploy) should travel together since email delivery is what blocks real invites in a deployed environment; consider a route-param validation pipe so the UUID class is closed for good.

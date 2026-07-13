@@ -1,6 +1,6 @@
 # HOMI v3 Progress
 
-**Last updated:** 2026-07-13 (HOMI-28 shipped; demo detour findings backlogged)
+**Last updated:** 2026-07-13 (Sprint 4 closed)
 
 ## Demo detour (2026-07-11)
 
@@ -34,6 +34,16 @@ The API itself checked out: balances, pairwise netting, dispute guards, and idem
 - MEDIUM: getLedger read expenses and payments in two auto-commit statements (the torn-read pattern HOMI-25 fixed in getBalances); now one repeatable-read snapshot
 - Cleanups: house.created now publishes like every other event; publish ids derive from transaction results; lastMagicLink bounded; rate-limit tests reset warm Redis budgets
 - Accepted for later: getBalances folds full history per call (Redis hot cache is the spec plan); publish-per-method refactor to derive hints from activity_events (queued Sprint 4); WS membership recheck (no member-removal endpoint exists yet)
+
+## Done (Sprint 4, 2026-07-13)
+
+- Recurring bills: (template_id, period) unique index + pure schedule math landed before any worker code (H4/H5); worker posts due periods as ordinary expenses, catch-up bounded, unpostable bills pause with a feed event; API bills endpoints idempotency-keyed [HOMI-13]
+- Retro refactor first: ActivityService.transact derives realtime hints from the activity_events write; six hand-placed publish sites removed
+- Expense edits: full-respec PUT snapshots previous fields AND splits into expense_revisions in-transaction; splits recompute through the same domain path as creation [HOMI-12]
+- Dispute resolution: recipient-only disputed -> resolved, SQL-guarded; balances count resolved again [HOMI-29]
+- Stretch: hourly idempotency-key pruning, 30-day retention, batched [HOMI-26]
+- Review gate (inline): HouseMemberGuard turned garbage houseIds into Postgres cast 500s on every house route; fixed with entity-route guards to match (third instance of this bug class - Sprint 5 should close it with a validation pipe)
+- Integration suite 32 -> 51 tests (41 API + 10 worker, new worker vitest harness); green with and without REDIS_URL
 
 ## Done (HOMI-28 member names, 2026-07-13)
 
@@ -81,15 +91,14 @@ The API itself checked out: balances, pairwise netting, dispute guards, and idem
 
 ## Next steps and what to be mindful of
 
-1. **Sprint 4 opener (retro action): recurring bills (HOMI-13), hazards first.**
-   Unique key on (template_id, period) so re-runs never double-post rent (H4); all scheduling computed server-side in the house timezone (H5).
-   The worker gets its first real job here; publish its events through the same Redis bus the gateway already consumes.
-2. **Refactor queued with the next ledger story:** derive realtime hints from the activity_events write that already happens inside every transaction, instead of hand-placed publish calls per service method.
-3. **Debt to carry consciously:** magic-link emails are only logged until HOMI-21 (email provider); legacy auth tables await the HOMI-22 contract migration; shared rooms are HOMI-23; idempotency-key retention is HOMI-26.
-4. **HOMI-14 Cloud Run deploy.**
+1. **Sprint 5 opener (retro action): HOMI-9 placeholder roommates as the centerpiece** - 8 points, atomic history claim (H11).
+2. **HOMI-21 + HOMI-14 travel together:** email delivery is what blocks real invites in a deployed environment, and the deploy target is what makes an email provider worth wiring.
+3. **Close the UUID-cast bug class for good:** three fixes in three shapes (WS path, entity routes, house guard); a route-param validation pipe belongs at the boundary layer.
+4. **Debt to carry consciously:** magic-link emails are only logged until HOMI-21; legacy auth tables await the HOMI-22 contract migration; shared rooms are HOMI-23.
+5. **HOMI-14 Cloud Run deploy.**
    CI deploy jobs are placeholders gated on `GCP_WORKLOAD_IDENTITY_PROVIDER`; needs GCP project + Workload Identity setup.
    Note: production now requires REDIS_URL (realtime fan-out and rate limits refuse the in-process fallback) and BETTER_AUTH_SECRET.
-5. **Process:** the agent code review stays the standing gate at each sprint close; Sprint 3's ran inline (cloud agents unavailable) and still caught a real 500-instead-of-404 bug.
-6. **Every money mutation stays idempotent and transactional (H1); the Definition of Done is the checklist, not a suggestion.**
-7. **Local dev quirk:** this Mac has no Docker daemon; integration tests run against Homebrew `postgresql@15` (scratch cluster on port 5433) plus Homebrew `redis` for the Redis-backed path, or in CI.
-8. **R1 discipline:** R2-R4 are hypothesis backlog; if money retention is weak, fix money, do not start chores.
+6. **Process:** the agent code review stays the standing gate at each sprint close; Sprint 3's and Sprint 4's ran inline and each caught a real 500-class bug.
+7. **Every money mutation stays idempotent and transactional (H1); the Definition of Done is the checklist, not a suggestion.**
+8. **Local dev quirk:** this Mac has no Docker daemon; integration tests run against Homebrew `postgresql@15` (default cluster started on port 5433) plus Homebrew `redis` for the Redis-backed path, or in CI.
+9. **R1 discipline:** R2-R4 are hypothesis backlog; if money retention is weak, fix money, do not start chores.

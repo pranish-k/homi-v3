@@ -34,10 +34,10 @@ Priority order within each epic is top to bottom.
 | HOMI-6 | As a member, I can create an expense with any split mode; the write is idempotent (H1) and transactional, and splits always sum to the total | 8 | Done (Sprint 1) |
 | HOMI-7 | As a member, I can see server-computed per-person balances from one balance function (invariant 3) | 5 | Done (Sprint 1) |
 | HOMI-11 | As a member, I can record a settlement payment with a 72-hour dispute window | 5 | Done (Sprint 2) |
-| HOMI-12 | As a member, I can edit an expense; the previous version is kept as a revision and the house is notified | 5 | Backlog |
-| HOMI-13 | As a bill owner, recurring bills auto-post on their due date in the house timezone, exactly once per period (H4, H5) | 8 | Backlog |
+| HOMI-12 | As a member, I can edit an expense; the previous version is kept as a revision and the house is notified | 5 | Done (Sprint 4) |
+| HOMI-13 | As a bill owner, recurring bills auto-post on their due date in the house timezone, exactly once per period (H4, H5) | 8 | Done (Sprint 4) |
 | HOMI-16 | As a member, I see a unified cursor-paginated ledger of expenses and payments | 3 | Done (Sprint 3) |
-| HOMI-29 | As a payment recipient, I can resolve a payment I disputed by confirming it after all (disputed -> resolved, counts in balances again); if I stand firm it stays disputed and the payer re-records correctly. Only the recipient can resolve, mirroring HOMI-11's single-sided philosophy: the protected party holds the pen (decided 2026-07-13; found on the demo/web detour) | 5 | Backlog |
+| HOMI-29 | As a payment recipient, I can resolve a payment I disputed by confirming it after all (disputed -> resolved, counts in balances again); if I stand firm it stays disputed and the payer re-records correctly. Only the recipient can resolve, mirroring HOMI-11's single-sided philosophy: the protected party holds the pen (decided 2026-07-13; found on the demo/web detour) | 5 | Done (Sprint 4) |
 
 ## Epic E4: Engagement surfaces
 
@@ -57,7 +57,7 @@ Priority order within each epic is top to bottom.
 | HOMI-23 | As a couple sharing a room, our room's weight splits across both occupants | 2 | Backlog |
 | HOMI-24 | As an operator, auth and invite endpoints are rate limited (spec 5.5; magic-link send is an unauthenticated email loop) | 3 | Done (Sprint 3) |
 | HOMI-25 | As the system, getBalances reads expenses and payments in one consistent snapshot instead of two statements | 2 | Done (Sprint 3) |
-| HOMI-26 | As an operator, idempotency keys are pruned by a worker job after a retention window | 2 | Backlog (review M7) |
+| HOMI-26 | As an operator, idempotency keys are pruned by a worker job after a retention window | 2 | Done (Sprint 4) |
 | HOMI-27 | As an operator, /healthz verifies DB connectivity so a wedged pool cannot report healthy | 1 | Done (Sprint 3) |
 
 ## Release gate (R1 to R2)
