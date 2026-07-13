@@ -134,4 +134,16 @@ describe('HOMI-13 bill templates API', () => {
       .set('Cookie', mallory.cookie)
       .expect(403);
   });
+
+  it('malformed ids get 4xx, never a Postgres cast error 500', async () => {
+    await request(http)
+      .get('/v1/houses/not-a-uuid/bills')
+      .set('Cookie', ana.cookie)
+      .expect(403);
+    await request(http)
+      .patch(`/v1/houses/${houseId}/bills/not-a-uuid`)
+      .set('Cookie', ana.cookie)
+      .send({ active: false })
+      .expect(400);
+  });
 });

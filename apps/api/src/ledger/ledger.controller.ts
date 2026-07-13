@@ -101,6 +101,7 @@ export class LedgerController {
     @Param('billId') billId: string,
     @Body() body: unknown,
   ) {
+    if (!UUID_RE.test(billId)) throw new BadRequestException('billId must be a UUID');
     const input = parseBody(setBillActiveSchema, body);
     return this.bills.setActive(houseId, billId, req.userId, input.active);
   }
