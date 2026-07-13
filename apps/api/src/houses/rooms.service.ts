@@ -6,8 +6,8 @@ import {
 } from '@nestjs/common';
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { schema, type Db } from '@homi/db';
+import { ActivityService } from '../activity/activity.service';
 import { DB } from '../db.module';
-import { RealtimeService } from '../realtime/realtime.service';
 
 export interface RoomInput {
   name: string;
@@ -19,7 +19,7 @@ export interface RoomInput {
 export class RoomsService {
   constructor(
     @Inject(DB) private readonly db: Db,
-    private readonly realtime: RealtimeService,
+    private readonly activity: ActivityService,
   ) {}
 
   /**
@@ -38,7 +38,7 @@ export class RoomsService {
       throw new BadRequestException('Each room needs its own occupant (shared rooms: HOMI-23)');
     }
 
-    const configured = await this.db.transaction(async (tx) => {
+    return this.activity.transact(async (tx, log) => {
       const [actor] = await tx
         .select({ role: schema.houseMembers.role })
         .from(schema.houseMembers)
@@ -91,7 +91,7 @@ export class RoomsService {
           );
       }
 
-      await tx.insert(schema.activityEvents).values({
+      await log({
         houseId,
         actorId,
         type: 'rooms.configured',
@@ -101,12 +101,6 @@ export class RoomsService {
       });
       return created;
     });
-    this.realtime.publish(houseId, {
-      type: 'rooms.configured',
-      entityType: 'house',
-      entityId: houseId,
-    });
-    return configured;
   }
 
   async getRooms(houseId: string) {

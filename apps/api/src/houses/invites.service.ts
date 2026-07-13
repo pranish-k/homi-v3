@@ -7,8 +7,8 @@ import {
 } from '@nestjs/common';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { schema, type Db } from '@homi/db';
+import { ActivityService } from '../activity/activity.service';
 import { DB } from '../db.module';
-import { RealtimeService } from '../realtime/realtime.service';
 
 const INVITE_TTL_DAYS = 7;
 
@@ -18,7 +18,7 @@ const hashToken = (token: string) => createHash('sha256').update(token).digest('
 export class InvitesService {
   constructor(
     @Inject(DB) private readonly db: Db,
-    private readonly realtime: RealtimeService,
+    private readonly activity: ActivityService,
   ) {}
 
   /** HOMI-8: invite links, not codes (spec 4.3). Raw token is returned once; only the hash is stored. */
@@ -57,7 +57,7 @@ export class InvitesService {
    * transaction, so concurrent accepts can never overshoot max_uses.
    */
   async acceptInvite(token: string, userId: string) {
-    const result = await this.db.transaction(async (tx) => {
+    return this.activity.transact(async (tx, log) => {
       const [invite] = await tx
         .select()
         .from(schema.invites)
@@ -111,7 +111,7 @@ export class InvitesService {
         .update(schema.invites)
         .set({ uses: sql`${schema.invites.uses} + 1` })
         .where(eq(schema.invites.id, invite.id));
-      await tx.insert(schema.activityEvents).values({
+      await log({
         houseId: invite.houseId,
         actorId: userId,
         type: 'member.joined',
@@ -120,13 +120,5 @@ export class InvitesService {
       });
       return { houseId: invite.houseId, alreadyMember: false };
     });
-    if (!result.alreadyMember) {
-      this.realtime.publish(result.houseId, {
-        type: 'member.joined',
-        entityType: 'member',
-        entityId: userId,
-      });
-    }
-    return result;
   }
 }

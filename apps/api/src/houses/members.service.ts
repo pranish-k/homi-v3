@@ -1,15 +1,11 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { and, eq, isNull } from 'drizzle-orm';
-import { schema, type Db } from '@homi/db';
-import { DB } from '../db.module';
-import { RealtimeService } from '../realtime/realtime.service';
+import { schema } from '@homi/db';
+import { ActivityService } from '../activity/activity.service';
 
 @Injectable()
 export class MembersService {
-  constructor(
-    @Inject(DB) private readonly db: Db,
-    private readonly realtime: RealtimeService,
-  ) {}
+  constructor(private readonly activity: ActivityService) {}
 
   /**
    * HOMI-28: a member's per-house display name overrides their account
@@ -18,7 +14,7 @@ export class MembersService {
    * an unchanged value writes no event, so re-sends cannot spam the feed.
    */
   async setDisplayName(houseId: string, userId: string, displayName: string | null) {
-    const result = await this.db.transaction(async (tx) => {
+    return this.activity.transact(async (tx, log) => {
       const [current] = await tx
         .select({ displayName: schema.houseMembers.displayName })
         .from(schema.houseMembers)
@@ -32,7 +28,7 @@ export class MembersService {
         .for('update');
       if (!current) throw new NotFoundException('Membership not found');
       if (current.displayName === displayName) {
-        return { displayName, changed: false };
+        return { displayName };
       }
 
       await tx
@@ -44,22 +40,14 @@ export class MembersService {
             eq(schema.houseMembers.userId, userId),
           ),
         );
-      await tx.insert(schema.activityEvents).values({
+      await log({
         houseId,
         actorId: userId,
         type: 'member.renamed',
         entityType: 'member',
         entityId: userId,
       });
-      return { displayName, changed: true };
+      return { displayName };
     });
-    if (result.changed) {
-      this.realtime.publish(houseId, {
-        type: 'member.renamed',
-        entityType: 'member',
-        entityId: userId,
-      });
-    }
-    return { displayName: result.displayName };
   }
 }

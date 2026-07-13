@@ -1,7 +1,6 @@
-import { Inject, Injectable } from '@nestjs/common';
-import { schema, type Db } from '@homi/db';
-import { DB } from '../db.module';
-import { RealtimeService } from '../realtime/realtime.service';
+import { Injectable } from '@nestjs/common';
+import { schema } from '@homi/db';
+import { ActivityService } from '../activity/activity.service';
 
 export interface CreateHouseInput {
   name: string;
@@ -11,13 +10,10 @@ export interface CreateHouseInput {
 
 @Injectable()
 export class HousesService {
-  constructor(
-    @Inject(DB) private readonly db: Db,
-    private readonly realtime: RealtimeService,
-  ) {}
+  constructor(private readonly activity: ActivityService) {}
 
   async createHouse(userId: string, input: CreateHouseInput) {
-    const created = await this.db.transaction(async (tx) => {
+    return this.activity.transact(async (tx, log) => {
       const [house] = await tx
         .insert(schema.houses)
         .values({ ...input, createdBy: userId })
@@ -28,7 +24,7 @@ export class HousesService {
         userId,
         role: 'admin',
       });
-      await tx.insert(schema.activityEvents).values({
+      await log({
         houseId: house.id,
         actorId: userId,
         type: 'house.created',
@@ -37,14 +33,5 @@ export class HousesService {
       });
       return house;
     });
-    // nobody can be connected to a brand-new house yet, but every
-    // activity event goes to the bus: consumers must not learn which
-    // event types are "safe" to miss
-    this.realtime.publish(created.id, {
-      type: 'house.created',
-      entityType: 'house',
-      entityId: created.id,
-    });
-    return created;
   }
 }

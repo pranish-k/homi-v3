@@ -16,9 +16,9 @@ import {
   type Balances,
   type SplitMode,
 } from '@homi/domain';
+import { ActivityService } from '../activity/activity.service';
 import { DB } from '../db.module';
 import { decodeCursor, encodeCursor } from '../lib/cursor';
-import { RealtimeService } from '../realtime/realtime.service';
 
 /** A Db or a transaction handle within one; both run the same query builders. */
 export type DbConn = Db | Parameters<Parameters<Db['transaction']>[0]>[0];
@@ -49,7 +49,7 @@ function isUniqueViolation(err: unknown): boolean {
 export class LedgerService {
   constructor(
     @Inject(DB) private readonly db: Db,
-    private readonly realtime: RealtimeService,
+    private readonly activity: ActivityService,
   ) {}
 
   /**
@@ -72,9 +72,7 @@ export class LedgerService {
     if (replayed) return replayed;
 
     try {
-      // hints go out only after the transaction commits: an in-tx publish
-      // could tell clients to refetch a write that then rolls back (H6)
-      const result = await this.db.transaction(async (tx) => {
+      const result = await this.activity.transact(async (tx, log) => {
         const [house] = await tx
           .select()
           .from(schema.houses)
@@ -164,7 +162,7 @@ export class LedgerService {
           })),
         );
 
-        await tx.insert(schema.activityEvents).values({
+        await log({
           houseId,
           actorId: userId,
           type: 'expense.created',
@@ -183,11 +181,6 @@ export class LedgerService {
           responseBody: body,
         });
         return { status: 201, body };
-      });
-      this.realtime.publish(houseId, {
-        type: 'expense.created',
-        entityType: 'expense',
-        entityId: result.body.expense.id,
       });
       return result;
     } catch (err) {
@@ -220,7 +213,7 @@ export class LedgerService {
     }
 
     try {
-      const result = await this.db.transaction(async (tx) => {
+      const result = await this.activity.transact(async (tx, log) => {
         const [house] = await tx
           .select()
           .from(schema.houses)
@@ -257,7 +250,7 @@ export class LedgerService {
           .returning();
         if (!payment) throw new Error('insert returned no row');
 
-        await tx.insert(schema.activityEvents).values({
+        await log({
           houseId,
           actorId: userId,
           type: 'payment.recorded',
@@ -277,11 +270,6 @@ export class LedgerService {
         });
         return { status: 201, body };
       });
-      this.realtime.publish(houseId, {
-        type: 'payment.recorded',
-        entityType: 'payment',
-        entityId: result.body.payment.id,
-      });
       return result;
     } catch (err) {
       if (isUniqueViolation(err)) {
@@ -298,7 +286,7 @@ export class LedgerService {
    * resolve cannot double-fire.
    */
   async disputePayment(paymentId: string, userId: string) {
-    const result = await this.db.transaction(async (tx) => {
+    return this.activity.transact(async (tx, log) => {
       const [payment] = await tx
         .select()
         .from(schema.payments)
@@ -335,7 +323,7 @@ export class LedgerService {
       const disputedPayment = updated[0];
       if (!disputedPayment) throw new BadRequestException('This payment is not open for dispute');
 
-      await tx.insert(schema.activityEvents).values({
+      await log({
         houseId: payment.houseId,
         actorId: userId,
         type: 'payment.disputed',
@@ -344,12 +332,6 @@ export class LedgerService {
       });
       return { payment: disputedPayment };
     });
-    this.realtime.publish(result.payment.houseId, {
-      type: 'payment.disputed',
-      entityType: 'payment',
-      entityId: paymentId,
-    });
-    return result;
   }
 
   /**

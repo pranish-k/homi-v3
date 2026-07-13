@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { APP_FILTER } from '@nestjs/core';
+import { ActivityService } from './activity/activity.service';
 import { DbModule } from './db.module';
 import { MembershipService } from './auth/membership.service';
 import { HealthController } from './health/health.controller';
@@ -25,6 +26,7 @@ import { RealtimeService } from './realtime/realtime.service';
     PaymentsController,
   ],
   providers: [
+    ActivityService,
     HousesService,
     InvitesService,
     MembersService,
