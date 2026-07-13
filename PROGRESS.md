@@ -1,6 +1,6 @@
 # HOMI v3 Progress
 
-**Last updated:** 2026-07-11 (demo detour noted)
+**Last updated:** 2026-07-13 (demo detour findings backlogged)
 
 ## Demo detour (2026-07-11)
 
@@ -13,6 +13,9 @@ git checkout demo/web && npm ci   # work on the demo (see DEMO.md there)
 git checkout main && npm ci       # back to the real project
 git branch --show-current         # see where you are
 ```
+
+Clicking through the demo (2026-07-13) surfaced two product gaps, now backlogged: HOMI-28 (magic-link signup leaves user.name empty and nothing writes display_name, so every surface can show nameless members) and HOMI-29 (a disputed payment dead-ends; the `resolved` status exists in schema and computeBalances but has no endpoint or product flow).
+The API itself checked out: balances, pairwise netting, dispute guards, and idempotency all behaved correctly.
 
 
 **Phase:** R1 Money Core (weeks 1-12, committed scope)
