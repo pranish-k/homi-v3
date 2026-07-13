@@ -6,15 +6,18 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "dev": "node -r ts-node/register -r dotenv/config src/main.ts",
-    "start": "node dist/main.js"
+    "start": "node dist/main.js",
+    "test:integration": "vitest run --config vitest.integration.config.ts"
   },
   "dependencies": {
     "@homi/db": "*",
     "@homi/domain": "*",
-    "dotenv": "^16.4.7"
+    "dotenv": "^16.4.7",
+    "ioredis": "^5.11.1"
   },
   "devDependencies": {
     "@types/node": "^22.10.5",
-    "ts-node": "^10.9.2"
+    "ts-node": "^10.9.2",
+    "vitest": "^2.1.9"
   }
 }

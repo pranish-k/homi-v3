@@ -1,12 +1,12 @@
 import {
   BadRequestException,
-  ConflictException,
   ForbiddenException,
   Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { hashRequest } from '../lib/request-hash';
+import { findStoredResponse, isUniqueViolation } from '../lib/idempotency';
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { schema, type Db } from '@homi/db';
 import {
@@ -37,12 +37,6 @@ export interface CreateExpenseInput {
   participants: string[];
   exactCents?: Record<string, number>;
   weightsBp?: Record<string, number>;
-}
-
-const PG_UNIQUE_VIOLATION = '23505';
-
-function isUniqueViolation(err: unknown): boolean {
-  return typeof err === 'object' && err !== null && (err as { code?: string }).code === PG_UNIQUE_VIOLATION;
 }
 
 @Injectable()
@@ -490,20 +484,6 @@ export class LedgerService {
     endpoint: string,
     requestHash: string,
   ): Promise<{ status: number; body: unknown } | null> {
-    const [row] = await this.db
-      .select()
-      .from(schema.idempotencyKeys)
-      .where(
-        and(
-          eq(schema.idempotencyKeys.key, key),
-          eq(schema.idempotencyKeys.userId, userId),
-          eq(schema.idempotencyKeys.endpoint, endpoint),
-        ),
-      );
-    if (!row) return null;
-    if (row.requestHash !== requestHash) {
-      throw new ConflictException('Idempotency-Key was already used with a different request');
-    }
-    return { status: row.responseStatus, body: row.responseBody };
+    return findStoredResponse(this.db, key, userId, endpoint, requestHash);
   }
 }

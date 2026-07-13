@@ -10,6 +10,7 @@ import { InvitesService } from './houses/invites.service';
 import { MembersService } from './houses/members.service';
 import { RoomsService } from './houses/rooms.service';
 import { SnapshotService } from './houses/snapshot.service';
+import { BillsService } from './ledger/bills.service';
 import { LedgerController, PaymentsController } from './ledger/ledger.controller';
 import { LedgerService } from './ledger/ledger.service';
 import { RateLimitFilter } from './ratelimit/rate-limit.filter';
@@ -32,6 +33,7 @@ import { RealtimeService } from './realtime/realtime.service';
     MembersService,
     RoomsService,
     SnapshotService,
+    BillsService,
     LedgerService,
     MembershipService,
     RealtimeService,
