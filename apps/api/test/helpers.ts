@@ -8,12 +8,16 @@ export interface Session {
   userId: string;
 }
 
-/** HOMI-2: the only way in is the real magic-link flow. */
+/** HOMI-2: the only way in is the real magic-link flow. HOMI-28: name applies on first sign-up only. */
 export async function signIn(
   http: ReturnType<INestApplication['getHttpServer']>,
   email: string,
+  name?: string,
 ): Promise<Session> {
-  await request(http).post('/api/auth/sign-in/magic-link').send({ email }).expect(200);
+  await request(http)
+    .post('/api/auth/sign-in/magic-link')
+    .send(name === undefined ? { email } : { email, name })
+    .expect(200);
   const url = lastMagicLink.get(email);
   if (!url) throw new Error(`no magic link captured for ${email}`);
   lastMagicLink.delete(email); // consumed: the capture map must not grow across a suite

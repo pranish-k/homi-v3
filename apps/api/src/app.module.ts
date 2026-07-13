@@ -6,6 +6,7 @@ import { HealthController } from './health/health.controller';
 import { HousesController, InvitesController } from './houses/houses.controller';
 import { HousesService } from './houses/houses.service';
 import { InvitesService } from './houses/invites.service';
+import { MembersService } from './houses/members.service';
 import { RoomsService } from './houses/rooms.service';
 import { SnapshotService } from './houses/snapshot.service';
 import { LedgerController, PaymentsController } from './ledger/ledger.controller';
@@ -26,6 +27,7 @@ import { RealtimeService } from './realtime/realtime.service';
   providers: [
     HousesService,
     InvitesService,
+    MembersService,
     RoomsService,
     SnapshotService,
     LedgerService,

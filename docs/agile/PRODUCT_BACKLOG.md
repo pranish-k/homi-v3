@@ -24,7 +24,7 @@ Priority order within each epic is top to bottom.
 | HOMI-8 | As an admin, I can create an invite link that a roommate can accept to join the house | 5 | Done (Sprint 2) |
 | HOMI-9 | As a member, I can log expenses against a placeholder roommate who later claims their history atomically (H11) | 8 | Backlog |
 | HOMI-10 | As a house, we can define rooms with weight basis points that sum to 10000, for room-weighted splits | 3 | Done (Sprint 2) |
-| HOMI-28 | As a user, I set my name at sign-up (and optionally a per-house display name), so no surface ever shows a nameless member; magic-link signup currently leaves name empty and nothing writes the existing display_name column (found on the demo/web detour) | 3 | Backlog |
+| HOMI-28 | As a user, I set my name at sign-up (and optionally a per-house display name), so no surface ever shows a nameless member; magic-link signup currently leaves name empty and nothing writes the existing display_name column (found on the demo/web detour) | 3 | Done (2026-07-13) |
 
 ## Epic E3: The Ledger
 
@@ -37,7 +37,7 @@ Priority order within each epic is top to bottom.
 | HOMI-12 | As a member, I can edit an expense; the previous version is kept as a revision and the house is notified | 5 | Backlog |
 | HOMI-13 | As a bill owner, recurring bills auto-post on their due date in the house timezone, exactly once per period (H4, H5) | 8 | Backlog |
 | HOMI-16 | As a member, I see a unified cursor-paginated ledger of expenses and payments | 3 | Done (Sprint 3) |
-| HOMI-29 | As roommates, a disputed payment can be resolved instead of dead-ending: the `resolved` status and its balance handling already exist, but no endpoint or product flow does (who can resolve, what it means for the debt; needs a product decision before build; found on the demo/web detour) | 5 | Backlog |
+| HOMI-29 | As a payment recipient, I can resolve a payment I disputed by confirming it after all (disputed -> resolved, counts in balances again); if I stand firm it stays disputed and the payer re-records correctly. Only the recipient can resolve, mirroring HOMI-11's single-sided philosophy: the protected party holds the pen (decided 2026-07-13; found on the demo/web detour) | 5 | Backlog |
 
 ## Epic E4: Engagement surfaces
 

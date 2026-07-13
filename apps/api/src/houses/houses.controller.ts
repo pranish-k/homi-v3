@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Put, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Put, Req, UseGuards } from '@nestjs/common';
 import { z } from 'zod';
 import { AuthGuard, type AuthedRequest } from '../auth/auth.guard';
 import { HouseMemberGuard } from '../auth/house-member.guard';
@@ -6,6 +6,7 @@ import { RateLimit, RateLimitGuard } from '../ratelimit/rate-limit.guard';
 import { parseBody } from '../lib/validation';
 import { HousesService } from './houses.service';
 import { InvitesService } from './invites.service';
+import { MembersService } from './members.service';
 import { RoomsService } from './rooms.service';
 import { SnapshotService } from './snapshot.service';
 
@@ -18,6 +19,10 @@ const createHouseSchema = z.object({
   name: z.string().min(1).max(100),
   timezone: z.string().min(1).max(64),
   currency: z.string().length(3).toUpperCase().default('USD'),
+});
+
+const setDisplayNameSchema = z.object({
+  displayName: z.string().trim().min(1).max(80).nullable(),
 });
 
 const setRoomsSchema = z.object({
@@ -39,6 +44,7 @@ export class HousesController {
   constructor(
     private readonly houses: HousesService,
     private readonly invites: InvitesService,
+    private readonly members: MembersService,
     private readonly rooms: RoomsService,
     private readonly snapshot: SnapshotService,
   ) {}
@@ -61,6 +67,18 @@ export class HousesController {
   @RateLimit({ bucket: 'invite:create', ...INVITE_RULE })
   async createInvite(@Req() req: AuthedRequest, @Param('houseId') houseId: string) {
     return this.invites.createInvite(houseId, req.userId);
+  }
+
+  /** HOMI-28: what this house calls me; null goes back to my account name. */
+  @Patch(':houseId/members/me')
+  @UseGuards(HouseMemberGuard)
+  async setDisplayName(
+    @Req() req: AuthedRequest,
+    @Param('houseId') houseId: string,
+    @Body() body: unknown,
+  ) {
+    const input = parseBody(setDisplayNameSchema, body);
+    return this.members.setDisplayName(houseId, req.userId, input.displayName);
   }
 
   @Put(':houseId/rooms')
