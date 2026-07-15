@@ -65,7 +65,7 @@ export class LedgerService {
   ): Promise<{ status: number; body: unknown }> {
     const endpoint = 'POST /v1/houses/:houseId/expenses';
     const requestHash = hashRequest({ houseId, input });
-    const replayed = await this.findStoredResponse(idempotencyKey, userId, endpoint, requestHash);
+    const replayed = await findStoredResponse(this.db, idempotencyKey, userId, endpoint, requestHash);
     if (replayed) return replayed;
 
     try {
@@ -129,7 +129,7 @@ export class LedgerService {
       return result;
     } catch (err) {
       if (isUniqueViolation(err)) {
-        const stored = await this.findStoredResponse(idempotencyKey, userId, endpoint, requestHash);
+        const stored = await findStoredResponse(this.db, idempotencyKey, userId, endpoint, requestHash);
         if (stored) return stored;
       }
       throw err;
@@ -216,7 +216,7 @@ export class LedgerService {
   ): Promise<{ status: number; body: unknown }> {
     const endpoint = 'PUT /v1/expenses/:expenseId';
     const requestHash = hashRequest({ expenseId, input });
-    const replayed = await this.findStoredResponse(idempotencyKey, userId, endpoint, requestHash);
+    const replayed = await findStoredResponse(this.db, idempotencyKey, userId, endpoint, requestHash);
     if (replayed) return replayed;
 
     try {
@@ -308,7 +308,7 @@ export class LedgerService {
       });
     } catch (err) {
       if (isUniqueViolation(err)) {
-        const stored = await this.findStoredResponse(idempotencyKey, userId, endpoint, requestHash);
+        const stored = await findStoredResponse(this.db, idempotencyKey, userId, endpoint, requestHash);
         if (stored) return stored;
       }
       throw err;
@@ -329,7 +329,7 @@ export class LedgerService {
   ): Promise<{ status: number; body: unknown }> {
     const endpoint = 'POST /v1/houses/:houseId/payments';
     const requestHash = hashRequest({ houseId, input });
-    const replayed = await this.findStoredResponse(idempotencyKey, userId, endpoint, requestHash);
+    const replayed = await findStoredResponse(this.db, idempotencyKey, userId, endpoint, requestHash);
     if (replayed) return replayed;
     if (input.toUser === userId) {
       throw new BadRequestException('You cannot record a payment to yourself');
@@ -396,7 +396,7 @@ export class LedgerService {
       return result;
     } catch (err) {
       if (isUniqueViolation(err)) {
-        const stored = await this.findStoredResponse(idempotencyKey, userId, endpoint, requestHash);
+        const stored = await findStoredResponse(this.db, idempotencyKey, userId, endpoint, requestHash);
         if (stored) return stored;
       }
       throw err;
@@ -663,12 +663,4 @@ export class LedgerService {
    * A key reused with a different body is a client bug and gets 409
    * instead of a silent wrong replay.
    */
-  private async findStoredResponse(
-    key: string,
-    userId: string,
-    endpoint: string,
-    requestHash: string,
-  ): Promise<{ status: number; body: unknown } | null> {
-    return findStoredResponse(this.db, key, userId, endpoint, requestHash);
-  }
 }

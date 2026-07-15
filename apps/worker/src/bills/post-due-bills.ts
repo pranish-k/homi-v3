@@ -1,37 +1,23 @@
-import { and, eq, isNotNull, isNull } from 'drizzle-orm';
-import { schema, type Db } from '@homi/db';
+import { and, eq, isNotNull, isNull, lte } from 'drizzle-orm';
+import { isUniqueViolation, schema, type Db } from '@homi/db';
 import {
   computeSplits,
+  isoAddDays,
   nextDueDate,
   periodKey,
   ScheduleError,
   SplitError,
   todayInTimezone,
   type Cadence,
+  type RealtimeHint,
 } from '@homi/domain';
 
-/** Matches the API's RealtimeHint; the worker publishes the same shape on the same bus. */
-export interface Hint {
-  type: string;
-  entityType: string;
-  entityId: string;
-  ts: string;
-}
-
-export type PublishHint = (houseId: string, hint: Hint) => void;
+export type PublishHint = (houseId: string, hint: RealtimeHint) => void;
 
 export interface PostDueBillsResult {
   posted: { templateId: string; expenseId: string; period: string }[];
   alreadyPosted: { templateId: string; period: string }[];
   paused: { templateId: string; reason: string }[];
-}
-
-const PG_UNIQUE_VIOLATION = '23505';
-
-function isUniqueViolation(err: unknown): boolean {
-  return (
-    typeof err === 'object' && err !== null && (err as { code?: string }).code === PG_UNIQUE_VIOLATION
-  );
 }
 
 /**
@@ -62,6 +48,10 @@ export async function postDueBills(
 ): Promise<PostDueBillsResult> {
   const result: PostDueBillsResult = { posted: [], alreadyPosted: [], paused: [] };
 
+  // over-approximate SQL bound so the scan rides idx_bill_templates_due:
+  // no house-local date can be later than the UTC date + 1 (UTC+14 max);
+  // the per-house timezone check below stays authoritative
+  const latestPossibleToday = isoAddDays(now.toISOString().slice(0, 10), 1);
   const templates = await db
     .select({
       template: schema.billTemplates,
@@ -70,20 +60,26 @@ export async function postDueBills(
     })
     .from(schema.billTemplates)
     .innerJoin(schema.houses, eq(schema.houses.id, schema.billTemplates.houseId))
-    .where(eq(schema.billTemplates.active, true))
+    .where(
+      and(
+        eq(schema.billTemplates.active, true),
+        lte(schema.billTemplates.nextRun, latestPossibleToday),
+      ),
+    )
     .orderBy(schema.billTemplates.createdAt);
 
   for (const { template, timezone, currency } of templates) {
+    let today: string;
+    try {
+      today = todayInTimezone(timezone, now);
+    } catch (err) {
+      await pause(db, template.id, template.houseId, template.ownerId, String(err), publish);
+      result.paused.push({ templateId: template.id, reason: String(err) });
+      continue;
+    }
+
     let { nextRun } = template;
     for (let i = 0; i < MAX_CATCHUP_PER_RUN; i++) {
-      let today: string;
-      try {
-        today = todayInTimezone(timezone, now);
-      } catch (err) {
-        await pause(db, template.id, template.houseId, template.ownerId, String(err), publish);
-        result.paused.push({ templateId: template.id, reason: String(err) });
-        break;
-      }
       if (nextRun > today) break;
 
       const dueISO = nextRun;

@@ -3,6 +3,7 @@ export type { SplitInput, SplitMode, Splits } from './money/split';
 export { computeBalances } from './money/balances';
 export type { Balances, ExpenseRow, PaymentRow } from './money/balances';
 export {
+  isoAddDays,
   isValidTimezone,
   nextDueDate,
   periodKey,
@@ -11,3 +12,4 @@ export {
   validateSchedule,
 } from './bills/schedule';
 export type { Cadence } from './bills/schedule';
+export type { RealtimeHint } from './realtime/hint';

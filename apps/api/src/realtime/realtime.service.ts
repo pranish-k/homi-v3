@@ -1,22 +1,13 @@
 import { EventEmitter } from 'node:events';
 import { Injectable, type OnApplicationShutdown } from '@nestjs/common';
 import type { Redis } from 'ioredis';
+import type { RealtimeHint } from '@homi/domain';
 import { closeRedis, getRedis, getSubscriberRedis, redisConfigured } from '../redis';
 
-/**
- * HOMI-17, hazard H6: a realtime event is a cache-invalidation HINT,
- * never the data itself. Events delivered while a phone was offline are
- * gone forever, so clients treat a hint as "refetch the snapshot" and
- * refetch on reconnect/foreground anyway. Ids are included so clients
- * can invalidate precisely; amounts, descriptions, and any other state
- * are not.
- */
-export interface RealtimeHint {
-  type: string; // matches the activity_events type, e.g. 'expense.created'
-  entityType: string;
-  entityId: string;
-  ts: string;
-}
+// HOMI-17, hazard H6: a realtime event is a cache-invalidation HINT,
+// never the data itself. The wire shape lives in @homi/domain because
+// the worker publishes on the same bus.
+export type { RealtimeHint } from '@homi/domain';
 
 type Listener = (hint: RealtimeHint) => void;
 

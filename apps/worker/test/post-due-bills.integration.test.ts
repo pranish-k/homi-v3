@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createDb, createPool, schema, type Db } from '@homi/db';
-import { postDueBills, type Hint } from '../src/bills/post-due-bills';
+import { type RealtimeHint } from '@homi/domain';
+import { postDueBills } from '../src/bills/post-due-bills';
 
 if (!process.env.DATABASE_URL) {
   throw new Error('DATABASE_URL must be set for integration tests (see docker-compose.yml)');
@@ -85,7 +86,7 @@ describe('postDueBills (HOMI-13)', () => {
   it('posts a due bill once with equal splits, advances next_run, emits event + hint', async () => {
     const houseId = await seedHouse('UTC', [ana, ben, chloe]);
     const templateId = await seedTemplate(houseId, ana, { nextRun: '2026-07-01', amountCents: 9000 });
-    const hints: { houseId: string; hint: Hint }[] = [];
+    const hints: { houseId: string; hint: RealtimeHint }[] = [];
 
     const result = await postDueBills(db, new Date('2026-07-01T00:05:00Z'), (h, hint) =>
       hints.push({ houseId: h, hint }),

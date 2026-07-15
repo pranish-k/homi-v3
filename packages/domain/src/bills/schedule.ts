@@ -118,6 +118,13 @@ export function periodKey(cadence: Cadence, dueISO: string): string {
   return cadence === 'monthly' ? dueISO.slice(0, 7) : dueISO;
 }
 
+/** Plain day arithmetic on an ISO date, for schedule bounds and "after yesterday" anchors. */
+export function isoAddDays(iso: string, days: number): string {
+  const { y, m, d } = parseISO(iso);
+  const shifted = new Date(Date.UTC(y, m - 1, d) + days * 86_400_000);
+  return toISO(shifted.getUTCFullYear(), shifted.getUTCMonth() + 1, shifted.getUTCDate());
+}
+
 /** True iff `timezone` is an IANA zone this runtime can compute dates in. */
 export function isValidTimezone(timezone: string): boolean {
   try {

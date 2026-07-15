@@ -7,7 +7,14 @@ import {
 } from '@nestjs/common';
 import { and, eq, isNull } from 'drizzle-orm';
 import { schema, type Db } from '@homi/db';
-import { nextDueDate, todayInTimezone, validateSchedule, ScheduleError, type Cadence } from '@homi/domain';
+import {
+  isoAddDays,
+  nextDueDate,
+  todayInTimezone,
+  validateSchedule,
+  ScheduleError,
+  type Cadence,
+} from '@homi/domain';
 import { hashRequest } from '../lib/request-hash';
 import { findStoredResponse, isUniqueViolation } from '../lib/idempotency';
 import { ActivityService } from '../activity/activity.service';
@@ -20,11 +27,6 @@ export interface CreateBillInput {
   cadence: Cadence;
   cadenceDay: string;
   ownerId?: string;
-}
-
-function isoAddDays(iso: string, days: number): string {
-  const d = new Date(`${iso}T00:00:00Z`);
-  return new Date(d.getTime() + days * 86_400_000).toISOString().slice(0, 10);
 }
 
 /**

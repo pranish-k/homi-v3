@@ -175,8 +175,7 @@ describe('HOMI-12 expense edits and HOMI-29 dispute resolution', () => {
   });
 
   it('HOMI-29: resolve makes a disputed payment count again, recipient-only, SQL-guarded', async () => {
-    const expense = await createExpense(9000, 'Utilities');
-    void expense;
+    await createExpense(9000, 'Utilities');
     const payment = await request(http)
       .post(`/v1/houses/${houseId}/payments`)
       .set('Cookie', ben.cookie)

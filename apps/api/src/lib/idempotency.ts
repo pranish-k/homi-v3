@@ -2,13 +2,7 @@ import { ConflictException } from '@nestjs/common';
 import { and, eq } from 'drizzle-orm';
 import { schema, type Db } from '@homi/db';
 
-const PG_UNIQUE_VIOLATION = '23505';
-
-export function isUniqueViolation(err: unknown): boolean {
-  return (
-    typeof err === 'object' && err !== null && (err as { code?: string }).code === PG_UNIQUE_VIOLATION
-  );
-}
+export { isUniqueViolation } from '@homi/db';
 
 /**
  * H1 replay lookup, shared by every idempotency-keyed mutation. Scoped

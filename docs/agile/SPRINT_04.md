@@ -49,7 +49,8 @@ HOMI-29: POST /v1/payments/:paymentId/resolve, recipient-only, SQL-guarded dispu
 HOMI-26 (stretch): hourly worker pass deletes idempotency keys past a 30-day window, batched, refusing nonsensical windows.
 The integration suite grew from 32 to 51 tests (41 API + 10 worker; the worker workspace got its own vitest harness seeding Postgres directly), all passing with and without REDIS_URL; the CI migration drift check passes.
 
-Review gate (inline): found and fixed one real bug class - HouseMemberGuard accepted non-UUID houseIds and every house-scoped HTTP route turned a garbage id into a Postgres cast error 500 (the same class the Sprint 3 review fixed on the WS path); payment and bill entity routes gained the same guard.
+Review gate ran twice: an inline pass found and fixed one real bug class - HouseMemberGuard accepted non-UUID houseIds and every house-scoped HTTP route turned a garbage id into a Postgres cast error 500 (the same class the Sprint 3 review fixed on the WS path); payment and bill entity routes gained the same guard.
+The multi-agent review then ran (8 finder angles + verification): zero correctness bugs survived; of ten cleanup findings, the mechanical ones were applied before tagging (shared isUniqueViolation in @homi/db, shared RealtimeHint type in @homi/domain, isoAddDays moved to the domain schedule module, a next_run SQL bound so the due-scan rides its partial index, a loop-invariant hoist, a forwarding wrapper and a dead test variable removed) and the structural ones carry to Sprint 5 (idempotency higher-order wrapper, shared posting core for worker + API, the route-param UUID pipe already in the retro action).
 
 ## Retrospective
 

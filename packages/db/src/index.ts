@@ -3,6 +3,7 @@ import { Pool } from 'pg';
 import * as schema from './schema';
 
 export * as schema from './schema';
+export { isUniqueViolation } from './errors';
 
 export type Db = NodePgDatabase<typeof schema>;
 
