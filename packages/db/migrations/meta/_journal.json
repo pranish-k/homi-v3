@@ -43,6 +43,13 @@
       "when": 1784250000270,
       "tag": "0005_placeholder_invites",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1784250387634,
+      "tag": "0006_homi22_drop_legacy_auth",
+      "breakpoints": true
     }
   ]
 }

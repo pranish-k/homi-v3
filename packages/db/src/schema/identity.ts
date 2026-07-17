@@ -18,34 +18,14 @@ export const users = pgTable('users', {
   name: text('name').notNull(),
   emailVerified: boolean('email_verified').notNull().default(false),
   image: text('image'),
-  avatarPath: text('avatar_path'), // legacy, superseded by image; dropped in HOMI-22
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
 });
 
-// Legacy hand-rolled auth tables (Sprint 1). Unused since HOMI-2; kept
-// through the expand phase (H7) and dropped in the HOMI-22 contract
-// migration.
-export const authIdentities = pgTable('auth_identities', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  userId: uuid('user_id')
-    .notNull()
-    .references(() => users.id),
-  provider: text('provider').notNull(),
-  providerUid: text('provider_uid').notNull(),
-});
-
-export const sessions = pgTable('sessions', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  userId: uuid('user_id')
-    .notNull()
-    .references(() => users.id),
-  refreshHash: text('refresh_hash').notNull(),
-  device: text('device'),
-  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
-  revokedAt: timestamp('revoked_at', { withTimezone: true }),
-});
+// The legacy hand-rolled auth tables (auth_identities, sessions) and
+// users.avatar_path expanded out in Sprint 2 (HOMI-2) and contracted in
+// the HOMI-22 migration (H7 complete).
 
 // Better Auth tables (HOMI-2, D3). Better Auth owns these rows; sessions
 // and identities live in our Postgres so we keep full data ownership.
