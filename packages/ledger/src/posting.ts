@@ -1,6 +1,6 @@
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { schema, type Db } from '@homi/db';
-import { computeSplits, type SplitMode } from '@homi/domain';
+import { computeSplits, divideRoomWeight, type SplitMode } from '@homi/domain';
 
 /** A Db or a transaction handle within one; both run the same query builders. */
 export type LedgerConn = Db | Parameters<Parameters<Db['transaction']>[0]>[0];
@@ -94,9 +94,11 @@ export async function resolveSplits(
 
 /**
  * Server-derived weights for a room-weighted split: every participant
- * needs a room assignment, and each participant carries their room's
- * weight. (Splitting one room's weight across two occupants is
- * HOMI-23.)
+ * needs a room assignment, and a room's weight divides across ALL its
+ * active occupants (HOMI-23: a couple shares their room's weight), so a
+ * member's personal weight is a fact about the house, not about any one
+ * expense. Occupants order by (joinedAt, userId), which pins where the
+ * odd basis point of an uneven division lands.
  */
 async function deriveRoomWeights(
   tx: LedgerConn,
@@ -117,16 +119,31 @@ async function deriveRoomWeights(
         .from(schema.rooms)
         .where(and(eq(schema.rooms.houseId, houseId), inArray(schema.rooms.id, roomIds)))
     : [];
-  const weightByRoom = new Map(rooms.map((r) => [r.id, r.weightBp]));
+
+  const occupantsByRoom = new Map<string, ActiveMember[]>();
+  for (const member of membersById.values()) {
+    if (member.roomId === null) continue;
+    const list = occupantsByRoom.get(member.roomId) ?? [];
+    list.push(member);
+    occupantsByRoom.set(member.roomId, list);
+  }
+
+  const shareByUser = new Map<string, number>();
+  for (const room of rooms) {
+    const occupants = (occupantsByRoom.get(room.id) ?? []).sort(
+      (a, b) => a.joinedAt.getTime() - b.joinedAt.getTime() || a.userId.localeCompare(b.userId),
+    );
+    const shares = divideRoomWeight(room.weightBp, occupants.map((o) => o.userId));
+    for (const [userId, share] of Object.entries(shares)) shareByUser.set(userId, share);
+  }
 
   const weights: Record<string, number> = {};
   for (const userId of participants) {
-    const roomId = membersById.get(userId)?.roomId;
-    const weightBp = roomId ? weightByRoom.get(roomId) : undefined;
-    if (weightBp === undefined) {
+    const share = shareByUser.get(userId);
+    if (share === undefined) {
       throw new PostingProblem('Every participant needs a room for a room-weighted split');
     }
-    weights[userId] = weightBp;
+    weights[userId] = share;
   }
   return weights;
 }

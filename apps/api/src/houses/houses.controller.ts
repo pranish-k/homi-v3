@@ -31,7 +31,8 @@ const setRoomsSchema = z.object({
       z.object({
         name: z.string().min(1).max(80),
         weightBp: z.number().int().positive().max(10000),
-        userId: z.string().uuid(),
+        // HOMI-23: a shared room lists all its occupants
+        userIds: z.array(z.string().uuid()).min(1).max(4),
       }),
     )
     .min(1)

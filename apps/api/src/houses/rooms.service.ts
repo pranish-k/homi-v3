@@ -12,7 +12,7 @@ import { DB } from '../db.module';
 export interface RoomInput {
   name: string;
   weightBp: number;
-  userId: string;
+  userIds: string[];
 }
 
 @Injectable()
@@ -24,18 +24,18 @@ export class RoomsService {
 
   /**
    * HOMI-10: room weights are set once at move-in (M1) and must sum to
-   * 10000 basis points. Current constraint: exactly one occupant per
-   * room; splitting one room's weight across two occupants is HOMI-23.
-   * Replaces the whole room configuration atomically.
+   * 10000 basis points. HOMI-23: a room can be shared - its weight then
+   * divides across its occupants when a room-weighted split derives
+   * (see @homi/ledger). Replaces the whole room configuration atomically.
    */
   async setRooms(houseId: string, actorId: string, rooms: RoomInput[]) {
     const weightSum = rooms.reduce((acc, r) => acc + r.weightBp, 0);
     if (weightSum !== 10000) {
       throw new BadRequestException(`Room weights must sum to 10000 basis points, got ${weightSum}`);
     }
-    const occupants = rooms.map((r) => r.userId);
+    const occupants = rooms.flatMap((r) => r.userIds);
     if (new Set(occupants).size !== occupants.length) {
-      throw new BadRequestException('Each room needs its own occupant (shared rooms: HOMI-23)');
+      throw new BadRequestException('A member can occupy only one room');
     }
 
     return this.activity.transact(async (tx, log) => {
@@ -86,7 +86,7 @@ export class RoomsService {
           .where(
             and(
               eq(schema.houseMembers.houseId, houseId),
-              eq(schema.houseMembers.userId, input.userId),
+              inArray(schema.houseMembers.userId, input.userIds),
             ),
           );
       }

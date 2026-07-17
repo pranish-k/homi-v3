@@ -92,8 +92,8 @@ describe('R1 money core (Sprints 1-2)', () => {
       .set('Cookie', ana.cookie)
       .send({
         rooms: [
-          { name: 'Master', weightBp: 6000, userId: ana.userId },
-          { name: 'Small room', weightBp: 3000, userId: ben.userId },
+          { name: 'Master', weightBp: 6000, userIds: [ana.userId] },
+          { name: 'Small room', weightBp: 3000, userIds: [ben.userId] },
         ],
       })
       .expect(400); // 9000 bp, must be rejected
@@ -103,8 +103,8 @@ describe('R1 money core (Sprints 1-2)', () => {
       .set('Cookie', ana.cookie)
       .send({
         rooms: [
-          { name: 'Master', weightBp: 6000, userId: ana.userId },
-          { name: 'Small room', weightBp: 4000, userId: ben.userId },
+          { name: 'Master', weightBp: 6000, userIds: [ana.userId] },
+          { name: 'Small room', weightBp: 4000, userIds: [ben.userId] },
         ],
       })
       .expect(200);
@@ -504,7 +504,7 @@ describe('R1 money core (Sprints 1-2)', () => {
     await request(http)
       .put(`/v1/houses/${houseId}/rooms`)
       .set('Cookie', mallory.cookie)
-      .send({ rooms: [{ name: 'X', weightBp: 10000, userId: mallory.userId }] })
+      .send({ rooms: [{ name: 'X', weightBp: 10000, userIds: [mallory.userId] }] })
       .expect(403);
     await request(http)
       .get(`/v1/houses/${houseId}/snapshot`)
