@@ -252,8 +252,8 @@ export class LedgerService {
           throw new BadRequestException(`This house keeps its ledger in ${house.currency}`);
         }
 
-        const counterpart = await tx
-          .select({ userId: schema.houseMembers.userId })
+        const [counterpart] = await tx
+          .select({ isPlaceholder: schema.houseMembers.isPlaceholder })
           .from(schema.houseMembers)
           .where(
             and(
@@ -262,8 +262,13 @@ export class LedgerService {
               isNull(schema.houseMembers.leftAt),
             ),
           );
-        if (counterpart.length === 0) {
+        if (!counterpart) {
           throw new BadRequestException('Recipient must be an active house member');
+        }
+        // HOMI-9: money cannot move to someone who is not here yet; the
+        // placeholder's debts wait for the real person to claim them
+        if (counterpart.isPlaceholder) {
+          throw new BadRequestException('A placeholder roommate cannot receive payments');
         }
 
         const [payment] = await tx

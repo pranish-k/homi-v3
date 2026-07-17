@@ -73,6 +73,11 @@ export async function resolveSplits(
   if (involved.some((id) => !byId.has(id))) {
     throw new PostingProblem('Payer and all participants must be active house members');
   }
+  // HOMI-9: a placeholder owes shares but never acts - it cannot have
+  // paid, so the claim never has to rewrite paid_by, only splits
+  if (byId.get(input.paidBy)?.isPlaceholder) {
+    throw new PostingProblem('A placeholder roommate cannot pay an expense');
+  }
 
   let weightsBp = input.weightsBp;
   if (input.mode === 'room_weighted') {

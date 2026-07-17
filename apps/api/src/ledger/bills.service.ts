@@ -68,7 +68,7 @@ export class BillsService {
         if (!house) throw new BadRequestException('House not found');
 
         const [owner] = await tx
-          .select({ userId: schema.houseMembers.userId })
+          .select({ isPlaceholder: schema.houseMembers.isPlaceholder })
           .from(schema.houseMembers)
           .where(
             and(
@@ -78,6 +78,11 @@ export class BillsService {
             ),
           );
         if (!owner) throw new BadRequestException('Bill owner must be an active house member');
+        // HOMI-9: the owner is who a posted bill records as payer, and a
+        // placeholder can never pay
+        if (owner.isPlaceholder) {
+          throw new BadRequestException('A placeholder roommate cannot own a bill');
+        }
 
         // "after yesterday" so a bill created on its due day still posts
         // today; H5: "today" is the house's wall-clock date, not the server's

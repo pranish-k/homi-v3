@@ -158,6 +158,10 @@ export const invites = pgTable(
     createdBy: uuid('created_by')
       .notNull()
       .references(() => users.id),
+    // HOMI-9: an invite bound to a placeholder carries the claim -
+    // accepting it hands the placeholder's history to the claimer in
+    // the same atomic accept (H11)
+    placeholderUserId: uuid('placeholder_user_id').references(() => users.id),
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
     maxUses: integer('max_uses').notNull().default(10),
     uses: integer('uses').notNull().default(0),

@@ -65,7 +65,7 @@ describe('R1 money core (Sprints 1-2)', () => {
       .post(`/v1/invites/${token}/accept`)
       .set('Cookie', ben.cookie)
       .expect(201);
-    expect(accept.body).toEqual({ houseId, alreadyMember: false });
+    expect(accept.body).toEqual({ houseId, alreadyMember: false, claimedPlaceholderId: null });
 
     // re-accepting is a no-op, not an error
     const again = await request(http)

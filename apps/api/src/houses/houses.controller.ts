@@ -25,6 +25,15 @@ const setDisplayNameSchema = z.object({
   displayName: z.string().trim().min(1).max(80).nullable(),
 });
 
+const createInviteSchema = z.object({
+  // HOMI-9: bind the invite to a placeholder; accepting it claims the history
+  placeholderId: z.string().uuid().optional(),
+});
+
+const createPlaceholderSchema = z.object({
+  name: z.string().trim().min(1).max(80),
+});
+
 const setRoomsSchema = z.object({
   rooms: z
     .array(
@@ -66,8 +75,25 @@ export class HousesController {
   @Post(':houseId/invites')
   @UseGuards(HouseMemberGuard, RateLimitGuard)
   @RateLimit({ bucket: 'invite:create', ...INVITE_RULE })
-  async createInvite(@Req() req: AuthedRequest, @Param('houseId') houseId: string) {
-    return this.invites.createInvite(houseId, req.userId);
+  async createInvite(
+    @Req() req: AuthedRequest,
+    @Param('houseId') houseId: string,
+    @Body() body: unknown,
+  ) {
+    const input = parseBody(createInviteSchema, body ?? {});
+    return this.invites.createInvite(houseId, req.userId, input.placeholderId);
+  }
+
+  /** HOMI-9: log expenses against "Sam" before Sam joins; Sam claims via a bound invite. */
+  @Post(':houseId/members/placeholders')
+  @UseGuards(HouseMemberGuard)
+  async createPlaceholder(
+    @Req() req: AuthedRequest,
+    @Param('houseId') houseId: string,
+    @Body() body: unknown,
+  ) {
+    const input = parseBody(createPlaceholderSchema, body);
+    return this.members.createPlaceholder(houseId, req.userId, input.name);
   }
 
   /** HOMI-28: what this house calls me; null goes back to my account name. */

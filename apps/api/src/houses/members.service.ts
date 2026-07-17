@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { and, eq, isNull } from 'drizzle-orm';
 import { schema } from '@homi/db';
 import { ActivityService } from '../activity/activity.service';
@@ -6,6 +6,50 @@ import { ActivityService } from '../activity/activity.service';
 @Injectable()
 export class MembersService {
   constructor(private readonly activity: ActivityService) {}
+
+  /**
+   * HOMI-9: a placeholder roommate is a real member row (splits, rooms,
+   * and balances need nothing special) behind a users row that can never
+   * act: no email, no session, and the posting core refuses it as a
+   * payer. Admin-only, like invites - placeholders gate who money can be
+   * logged against.
+   */
+  async createPlaceholder(houseId: string, actorId: string, name: string) {
+    return this.activity.transact(async (tx, log) => {
+      const [actor] = await tx
+        .select({ role: schema.houseMembers.role })
+        .from(schema.houseMembers)
+        .where(
+          and(
+            eq(schema.houseMembers.houseId, houseId),
+            eq(schema.houseMembers.userId, actorId),
+            isNull(schema.houseMembers.leftAt),
+          ),
+        );
+      if (actor?.role !== 'admin') {
+        throw new ForbiddenException('Only house admins can add placeholder roommates');
+      }
+
+      const [placeholder] = await tx
+        .insert(schema.users)
+        .values({ name, email: null })
+        .returning({ id: schema.users.id, name: schema.users.name });
+      if (!placeholder) throw new Error('insert returned no row');
+      await tx
+        .insert(schema.houseMembers)
+        .values({ houseId, userId: placeholder.id, isPlaceholder: true });
+
+      await log({
+        houseId,
+        actorId,
+        type: 'member.placeholder_added',
+        entityType: 'member',
+        entityId: placeholder.id,
+        payload: { name },
+      });
+      return { userId: placeholder.id, name: placeholder.name, isPlaceholder: true };
+    });
+  }
 
   /**
    * HOMI-28: a member's per-house display name overrides their account
