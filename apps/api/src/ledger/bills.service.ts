@@ -15,8 +15,7 @@ import {
   ScheduleError,
   type Cadence,
 } from '@homi/domain';
-import { hashRequest } from '../lib/request-hash';
-import { findStoredResponse, isUniqueViolation } from '../lib/idempotency';
+import { withIdempotency, type StoredResponse } from '../lib/idempotency';
 import { ActivityService } from '../activity/activity.service';
 import { DB } from '../db.module';
 
@@ -50,12 +49,8 @@ export class BillsService {
     userId: string,
     idempotencyKey: string,
     input: CreateBillInput,
-  ): Promise<{ status: number; body: unknown }> {
+  ): Promise<StoredResponse> {
     const endpoint = 'POST /v1/houses/:houseId/bills';
-    const requestHash = hashRequest({ houseId, input });
-    const replayed = await findStoredResponse(this.db, idempotencyKey, userId, endpoint, requestHash);
-    if (replayed) return replayed;
-
     try {
       validateSchedule(input.cadence, input.cadenceDay);
     } catch (err) {
@@ -64,8 +59,8 @@ export class BillsService {
     }
     const ownerId = input.ownerId ?? userId;
 
-    try {
-      return await this.activity.transact(async (tx, log) => {
+    return withIdempotency(this.db, { key: idempotencyKey, userId, endpoint, scope: { houseId, input } }, (store) =>
+      this.activity.transact(async (tx, log) => {
         const [house] = await tx
           .select()
           .from(schema.houses)
@@ -114,24 +109,11 @@ export class BillsService {
           payload: { description: bill.description, amountCents: bill.amountCents, nextRun },
         });
 
-        const body = { bill };
-        await tx.insert(schema.idempotencyKeys).values({
-          key: idempotencyKey,
-          userId,
-          endpoint,
-          requestHash,
-          responseStatus: 201,
-          responseBody: body,
-        });
-        return { status: 201, body };
-      });
-    } catch (err) {
-      if (isUniqueViolation(err)) {
-        const stored = await findStoredResponse(this.db, idempotencyKey, userId, endpoint, requestHash);
-        if (stored) return stored;
-      }
-      throw err;
-    }
+        const response = { status: 201, body: { bill } };
+        await store(tx, response);
+        return response;
+      }),
+    );
   }
 
   async listBills(houseId: string) {

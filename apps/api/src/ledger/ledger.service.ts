@@ -5,8 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { hashRequest } from '../lib/request-hash';
-import { findStoredResponse, isUniqueViolation } from '../lib/idempotency';
+import { withIdempotency, type DbConn, type StoredResponse } from '../lib/idempotency';
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { schema, type Db } from '@homi/db';
 import {
@@ -20,8 +19,7 @@ import { ActivityService } from '../activity/activity.service';
 import { DB } from '../db.module';
 import { decodeCursor, encodeCursor } from '../lib/cursor';
 
-/** A Db or a transaction handle within one; both run the same query builders. */
-export type DbConn = Db | Parameters<Parameters<Db['transaction']>[0]>[0];
+export type { DbConn };
 
 /** HOMI-11: how long the recipient can dispute a recorded payment. */
 export const DISPUTE_WINDOW_MS = 72 * 60 * 60 * 1000;
@@ -62,14 +60,10 @@ export class LedgerService {
     userId: string,
     idempotencyKey: string,
     input: CreateExpenseInput,
-  ): Promise<{ status: number; body: unknown }> {
+  ): Promise<StoredResponse> {
     const endpoint = 'POST /v1/houses/:houseId/expenses';
-    const requestHash = hashRequest({ houseId, input });
-    const replayed = await findStoredResponse(this.db, idempotencyKey, userId, endpoint, requestHash);
-    if (replayed) return replayed;
-
-    try {
-      const result = await this.activity.transact(async (tx, log) => {
+    return withIdempotency(this.db, { key: idempotencyKey, userId, endpoint, scope: { houseId, input } }, (store) =>
+      this.activity.transact(async (tx, log) => {
         const [house] = await tx
           .select()
           .from(schema.houses)
@@ -115,25 +109,11 @@ export class LedgerService {
           payload: { amountCents: expense.amountCents, description: expense.description },
         });
 
-        const body = { expense, splits };
-        await tx.insert(schema.idempotencyKeys).values({
-          key: idempotencyKey,
-          userId,
-          endpoint,
-          requestHash,
-          responseStatus: 201,
-          responseBody: body,
-        });
-        return { status: 201, body };
-      });
-      return result;
-    } catch (err) {
-      if (isUniqueViolation(err)) {
-        const stored = await findStoredResponse(this.db, idempotencyKey, userId, endpoint, requestHash);
-        if (stored) return stored;
-      }
-      throw err;
-    }
+        const response = { status: 201, body: { expense, splits } };
+        await store(tx, response);
+        return response;
+      }),
+    );
   }
 
   /**
@@ -213,14 +193,10 @@ export class LedgerService {
     userId: string,
     idempotencyKey: string,
     input: EditExpenseInput,
-  ): Promise<{ status: number; body: unknown }> {
+  ): Promise<StoredResponse> {
     const endpoint = 'PUT /v1/expenses/:expenseId';
-    const requestHash = hashRequest({ expenseId, input });
-    const replayed = await findStoredResponse(this.db, idempotencyKey, userId, endpoint, requestHash);
-    if (replayed) return replayed;
-
-    try {
-      return await this.activity.transact(async (tx, log) => {
+    return withIdempotency(this.db, { key: idempotencyKey, userId, endpoint, scope: { expenseId, input } }, (store) =>
+      this.activity.transact(async (tx, log) => {
         const [expense] = await tx
           .select()
           .from(schema.expenses)
@@ -295,24 +271,11 @@ export class LedgerService {
           payload: { amountCents: updated.amountCents, description: updated.description },
         });
 
-        const body = { expense: updated, splits };
-        await tx.insert(schema.idempotencyKeys).values({
-          key: idempotencyKey,
-          userId,
-          endpoint,
-          requestHash,
-          responseStatus: 200,
-          responseBody: body,
-        });
-        return { status: 200, body };
-      });
-    } catch (err) {
-      if (isUniqueViolation(err)) {
-        const stored = await findStoredResponse(this.db, idempotencyKey, userId, endpoint, requestHash);
-        if (stored) return stored;
-      }
-      throw err;
-    }
+        const response = { status: 200, body: { expense: updated, splits } };
+        await store(tx, response);
+        return response;
+      }),
+    );
   }
 
   /**
@@ -326,17 +289,13 @@ export class LedgerService {
     userId: string,
     idempotencyKey: string,
     input: { toUser: string; amountCents: number; currency?: string; method?: string },
-  ): Promise<{ status: number; body: unknown }> {
+  ): Promise<StoredResponse> {
     const endpoint = 'POST /v1/houses/:houseId/payments';
-    const requestHash = hashRequest({ houseId, input });
-    const replayed = await findStoredResponse(this.db, idempotencyKey, userId, endpoint, requestHash);
-    if (replayed) return replayed;
     if (input.toUser === userId) {
       throw new BadRequestException('You cannot record a payment to yourself');
     }
-
-    try {
-      const result = await this.activity.transact(async (tx, log) => {
+    return withIdempotency(this.db, { key: idempotencyKey, userId, endpoint, scope: { houseId, input } }, (store) =>
+      this.activity.transact(async (tx, log) => {
         const [house] = await tx
           .select()
           .from(schema.houses)
@@ -382,25 +341,11 @@ export class LedgerService {
           payload: { amountCents: payment.amountCents, toUser: payment.toUser },
         });
 
-        const body = { payment };
-        await tx.insert(schema.idempotencyKeys).values({
-          key: idempotencyKey,
-          userId,
-          endpoint,
-          requestHash,
-          responseStatus: 201,
-          responseBody: body,
-        });
-        return { status: 201, body };
-      });
-      return result;
-    } catch (err) {
-      if (isUniqueViolation(err)) {
-        const stored = await findStoredResponse(this.db, idempotencyKey, userId, endpoint, requestHash);
-        if (stored) return stored;
-      }
-      throw err;
-    }
+        const response = { status: 201, body: { payment } };
+        await store(tx, response);
+        return response;
+      }),
+    );
   }
 
   /**
@@ -657,10 +602,4 @@ export class LedgerService {
     };
   }
 
-  /**
-   * Replay lookup is scoped to (key, user, endpoint): one user's stored
-   * response can never be replayed to another user or across endpoints.
-   * A key reused with a different body is a client bug and gets 409
-   * instead of a silent wrong replay.
-   */
 }
