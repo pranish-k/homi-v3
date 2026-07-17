@@ -8,13 +8,13 @@ import {
 import { withIdempotency, type DbConn, type StoredResponse } from '../lib/idempotency';
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { schema, type Db } from '@homi/db';
+import { computeBalances, SplitError, type Balances, type SplitMode } from '@homi/domain';
 import {
-  computeBalances,
-  computeSplits,
-  SplitError,
-  type Balances,
-  type SplitMode,
-} from '@homi/domain';
+  insertExpense,
+  PostingProblem,
+  resolveSplits,
+  type ResolveSplitsInput,
+} from '@homi/ledger';
 import { ActivityService } from '../activity/activity.service';
 import { DB } from '../db.module';
 import { decodeCursor, encodeCursor } from '../lib/cursor';
@@ -76,28 +76,19 @@ export class LedgerService {
         }
 
         const splits = await this.resolveSplits(tx, houseId, input);
-
-        const [expense] = await tx
-          .insert(schema.expenses)
-          .values({
+        const expense = await insertExpense(
+          tx,
+          {
             houseId,
             description: input.description,
             amountCents: input.amountCents,
             currency: input.currency ?? house.currency,
             paidBy: input.paidBy,
             category: input.category,
-            isStaple: input.isStaple ?? false,
+            isStaple: input.isStaple,
             createdBy: userId,
-          })
-          .returning();
-        if (!expense) throw new Error('insert returned no row');
-
-        await tx.insert(schema.expenseSplits).values(
-          Object.entries(splits).map(([splitUserId, amountCents]) => ({
-            expenseId: expense.id,
-            userId: splitUserId,
-            amountCents,
-          })),
+          },
+          splits,
         );
 
         await log({
@@ -117,65 +108,21 @@ export class LedgerService {
   }
 
   /**
-   * The one place splits are derived from a request (create and edit
-   * both call it): payer and participants must be active members, and
-   * room-weighted weights come from room assignments server-side -
-   * clients cannot supply their own (spec 5.3: clients never compute
-   * state).
+   * Splits derive in the shared posting core (@homi/ledger) - the same
+   * code the worker posts bills through, so who-owes-what cannot drift
+   * between API and worker. Domain rejections become 400s here.
    */
   private async resolveSplits(
     tx: DbConn,
     houseId: string,
-    input: Omit<CreateExpenseInput, 'description' | 'currency' | 'category' | 'isStaple'>,
+    input: ResolveSplitsInput,
   ): Promise<Record<string, number>> {
-    const involved = [...new Set([...input.participants, input.paidBy])];
-    const activeMembers = await tx
-      .select({ userId: schema.houseMembers.userId })
-      .from(schema.houseMembers)
-      .where(
-        and(
-          eq(schema.houseMembers.houseId, houseId),
-          inArray(schema.houseMembers.userId, involved),
-          isNull(schema.houseMembers.leftAt),
-        ),
-      );
-    if (activeMembers.length !== involved.length) {
-      throw new BadRequestException('Payer and all participants must be active house members');
-    }
-
-    let weightsBp = input.weightsBp;
-    if (input.mode === 'room_weighted') {
-      if (weightsBp) {
-        throw new BadRequestException('room_weighted splits are derived from rooms; do not send weightsBp');
-      }
-      const assignments = await tx
-        .select({ userId: schema.houseMembers.userId, weightBp: schema.rooms.weightBp })
-        .from(schema.houseMembers)
-        .innerJoin(schema.rooms, eq(schema.rooms.id, schema.houseMembers.roomId))
-        .where(
-          and(
-            eq(schema.houseMembers.houseId, houseId),
-            inArray(schema.houseMembers.userId, input.participants),
-            isNull(schema.houseMembers.leftAt),
-          ),
-        );
-      if (assignments.length !== input.participants.length) {
-        throw new BadRequestException('Every participant needs a room for a room-weighted split');
-      }
-      weightsBp = Object.fromEntries(assignments.map((a) => [a.userId, a.weightBp]));
-    }
-
     try {
-      return computeSplits({
-        totalCents: input.amountCents,
-        paidBy: input.paidBy,
-        mode: input.mode,
-        participants: input.participants,
-        exactCents: input.exactCents,
-        weightsBp,
-      });
+      return await resolveSplits(tx, houseId, input);
     } catch (err) {
-      if (err instanceof SplitError) throw new BadRequestException(err.message);
+      if (err instanceof PostingProblem || err instanceof SplitError) {
+        throw new BadRequestException(err.message);
+      }
       throw err;
     }
   }

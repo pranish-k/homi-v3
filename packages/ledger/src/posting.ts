@@ -1,0 +1,183 @@
+import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { schema, type Db } from '@homi/db';
+import { computeSplits, type SplitMode } from '@homi/domain';
+
+/** A Db or a transaction handle within one; both run the same query builders. */
+export type LedgerConn = Db | Parameters<Parameters<Db['transaction']>[0]>[0];
+
+/**
+ * A posting that cannot proceed for a domain reason (missing member,
+ * unassigned room, placeholder misuse). The API maps it to a 400; the
+ * worker pauses the bill. Anything else is a real bug and propagates.
+ */
+export class PostingProblem extends Error {}
+
+export interface ActiveMember {
+  userId: string;
+  isPlaceholder: boolean;
+  roomId: string | null;
+  joinedAt: Date;
+}
+
+/**
+ * Sprint 4 review carryover: the ONE money write core shared by the API
+ * (expense create/edit) and the worker (bill posting), so who-owes-what
+ * logic cannot drift between them.
+ *
+ * Every posting starts here. SHARE locks on the membership rows make a
+ * posting serialize with anything that rewrites membership under it -
+ * in particular a placeholder claim (H11), which takes FOR UPDATE on
+ * the same rows: an expense resolved against the placeholder commits
+ * either before the claim (and is swept into it) or after it (and
+ * fails the active-member check).
+ */
+export async function lockActiveMembers(tx: LedgerConn, houseId: string): Promise<ActiveMember[]> {
+  return tx
+    .select({
+      userId: schema.houseMembers.userId,
+      isPlaceholder: schema.houseMembers.isPlaceholder,
+      roomId: schema.houseMembers.roomId,
+      joinedAt: schema.houseMembers.joinedAt,
+    })
+    .from(schema.houseMembers)
+    .where(and(eq(schema.houseMembers.houseId, houseId), isNull(schema.houseMembers.leftAt)))
+    .for('share');
+}
+
+export interface ResolveSplitsInput {
+  amountCents: number;
+  paidBy: string;
+  mode: SplitMode;
+  participants: string[];
+  exactCents?: Record<string, number>;
+  weightsBp?: Record<string, number>;
+}
+
+/**
+ * The one place splits are derived from a request. Payer and
+ * participants must be active members, and room-weighted weights come
+ * from room assignments server-side - clients cannot supply their own
+ * (spec 5.3: clients never compute state). SplitError propagates for
+ * callers to map alongside PostingProblem.
+ */
+export async function resolveSplits(
+  tx: LedgerConn,
+  houseId: string,
+  input: ResolveSplitsInput,
+  preloadedMembers?: ActiveMember[],
+): Promise<Record<string, number>> {
+  const members = preloadedMembers ?? (await lockActiveMembers(tx, houseId));
+  const byId = new Map(members.map((m) => [m.userId, m]));
+
+  const involved = [...new Set([...input.participants, input.paidBy])];
+  if (involved.some((id) => !byId.has(id))) {
+    throw new PostingProblem('Payer and all participants must be active house members');
+  }
+
+  let weightsBp = input.weightsBp;
+  if (input.mode === 'room_weighted') {
+    if (weightsBp) {
+      throw new PostingProblem('room_weighted splits are derived from rooms; do not send weightsBp');
+    }
+    weightsBp = await deriveRoomWeights(tx, houseId, input.participants, byId);
+  }
+
+  return computeSplits({
+    totalCents: input.amountCents,
+    paidBy: input.paidBy,
+    mode: input.mode,
+    participants: input.participants,
+    exactCents: input.exactCents,
+    weightsBp,
+  });
+}
+
+/**
+ * Server-derived weights for a room-weighted split: every participant
+ * needs a room assignment, and each participant carries their room's
+ * weight. (Splitting one room's weight across two occupants is
+ * HOMI-23.)
+ */
+async function deriveRoomWeights(
+  tx: LedgerConn,
+  houseId: string,
+  participants: string[],
+  membersById: Map<string, ActiveMember>,
+): Promise<Record<string, number>> {
+  const roomIds = [
+    ...new Set(
+      participants
+        .map((id) => membersById.get(id)?.roomId)
+        .filter((roomId): roomId is string => roomId != null),
+    ),
+  ];
+  const rooms = roomIds.length
+    ? await tx
+        .select({ id: schema.rooms.id, weightBp: schema.rooms.weightBp })
+        .from(schema.rooms)
+        .where(and(eq(schema.rooms.houseId, houseId), inArray(schema.rooms.id, roomIds)))
+    : [];
+  const weightByRoom = new Map(rooms.map((r) => [r.id, r.weightBp]));
+
+  const weights: Record<string, number> = {};
+  for (const userId of participants) {
+    const roomId = membersById.get(userId)?.roomId;
+    const weightBp = roomId ? weightByRoom.get(roomId) : undefined;
+    if (weightBp === undefined) {
+      throw new PostingProblem('Every participant needs a room for a room-weighted split');
+    }
+    weights[userId] = weightBp;
+  }
+  return weights;
+}
+
+export interface ExpenseSpec {
+  houseId: string;
+  description: string;
+  amountCents: number;
+  currency: string;
+  paidBy: string;
+  category?: string | null;
+  isStaple?: boolean;
+  templateId?: string;
+  period?: string;
+  createdBy: string;
+}
+
+/**
+ * The one expense write shape: expense row + split rows, same
+ * transaction. Activity logging stays with the caller (event types and
+ * payloads differ per mutation, and the API routes them through
+ * ActivityService for the realtime hint).
+ */
+export async function insertExpense(
+  tx: LedgerConn,
+  spec: ExpenseSpec,
+  splits: Record<string, number>,
+): Promise<typeof schema.expenses.$inferSelect> {
+  const [expense] = await tx
+    .insert(schema.expenses)
+    .values({
+      houseId: spec.houseId,
+      description: spec.description,
+      amountCents: spec.amountCents,
+      currency: spec.currency,
+      paidBy: spec.paidBy,
+      category: spec.category,
+      isStaple: spec.isStaple ?? false,
+      templateId: spec.templateId,
+      period: spec.period,
+      createdBy: spec.createdBy,
+    })
+    .returning();
+  if (!expense) throw new Error('insert returned no row');
+
+  await tx.insert(schema.expenseSplits).values(
+    Object.entries(splits).map(([userId, amountCents]) => ({
+      expenseId: expense.id,
+      userId,
+      amountCents,
+    })),
+  );
+  return expense;
+}

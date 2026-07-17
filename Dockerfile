@@ -8,11 +8,12 @@ COPY apps/api/package.json apps/api/
 COPY apps/worker/package.json apps/worker/
 COPY packages/db/package.json packages/db/
 COPY packages/domain/package.json packages/domain/
+COPY packages/ledger/package.json packages/ledger/
 RUN npm ci --no-fund --no-audit
 COPY tsconfig.base.json ./
 COPY packages ./packages
 COPY apps ./apps
-RUN npm run build -w @homi/domain -w @homi/db -w @homi/api -w @homi/worker \
+RUN npm run build -w @homi/domain -w @homi/db -w @homi/ledger -w @homi/api -w @homi/worker \
   && npm prune --omit=dev
 
 FROM node:22-alpine AS runtime
@@ -24,6 +25,8 @@ COPY --from=build /app/packages/domain/dist ./node_modules/@homi/domain/dist
 COPY --from=build /app/packages/domain/package.json ./node_modules/@homi/domain/
 COPY --from=build /app/packages/db/dist ./node_modules/@homi/db/dist
 COPY --from=build /app/packages/db/package.json ./node_modules/@homi/db/
+COPY --from=build /app/packages/ledger/dist ./node_modules/@homi/ledger/dist
+COPY --from=build /app/packages/ledger/package.json ./node_modules/@homi/ledger/
 COPY --from=build /app/packages/db/migrations ./migrations
 COPY --from=build /app/apps/api/dist ./apps/api/dist
 COPY --from=build /app/apps/worker/dist ./apps/worker/dist

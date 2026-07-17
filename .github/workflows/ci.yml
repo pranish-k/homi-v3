@@ -22,7 +22,7 @@ jobs:
           cache: npm
       - run: npm ci --no-fund --no-audit
       - name: Build workspace libraries
-        run: npm run build -w @homi/domain -w @homi/db
+        run: npm run build -w @homi/domain -w @homi/db -w @homi/ledger
       - run: npm run typecheck
       - run: npm run lint
       - name: Unit tests (money math property tests included)
@@ -66,7 +66,7 @@ jobs:
           cache: npm
       - run: npm ci --no-fund --no-audit
       - name: Build workspace libraries
-        run: npm run build -w @homi/domain -w @homi/db
+        run: npm run build -w @homi/domain -w @homi/db -w @homi/ledger
       - name: Migration drift check (schema and checked-in migrations must match)
         run: |
           npm run db:generate
@@ -87,7 +87,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci --no-fund --no-audit
-      - run: npm run build -w @homi/domain -w @homi/db -w @homi/api -w @homi/worker
+      - run: npm run build -w @homi/domain -w @homi/db -w @homi/ledger -w @homi/api -w @homi/worker
       - name: Docker build
         run: docker build -t homi-backend:${{ github.sha }} .
 

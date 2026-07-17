@@ -1,0 +1,16 @@
+{
+  "name": "@homi/ledger",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@homi/db": "*",
+    "@homi/domain": "*",
+    "drizzle-orm": "^0.38.4"
+  }
+}

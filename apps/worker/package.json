@@ -12,6 +12,7 @@
   "dependencies": {
     "@homi/db": "*",
     "@homi/domain": "*",
+    "@homi/ledger": "*",
     "dotenv": "^16.4.7",
     "ioredis": "^5.11.1"
   },

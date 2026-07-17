@@ -1,7 +1,6 @@
-import { and, eq, isNotNull, isNull, lte } from 'drizzle-orm';
+import { and, eq, lte } from 'drizzle-orm';
 import { isUniqueViolation, schema, type Db } from '@homi/db';
 import {
-  computeSplits,
   isoAddDays,
   nextDueDate,
   periodKey,
@@ -11,6 +10,7 @@ import {
   type Cadence,
   type RealtimeHint,
 } from '@homi/domain';
+import { insertExpense, lockActiveMembers, PostingProblem, resolveSplits } from '@homi/ledger';
 
 export type PublishHint = (houseId: string, hint: RealtimeHint) => void;
 
@@ -27,8 +27,6 @@ export interface PostDueBillsResult {
  * backlog because resuming recomputes next_run from today.
  */
 const MAX_CATCHUP_PER_RUN = 24;
-
-class BillPostingProblem extends Error {}
 
 /**
  * HOMI-13, the worker's first real job. For every active template whose
@@ -107,7 +105,7 @@ export async function postDueBills(
           nextRun = advanced;
           continue;
         }
-        if (err instanceof BillPostingProblem || err instanceof ScheduleError || err instanceof SplitError) {
+        if (err instanceof PostingProblem || err instanceof ScheduleError || err instanceof SplitError) {
           // a bill that cannot post (owner left, vacant room, broken
           // timezone) must not hot-loop every minute; pause it and put
           // the problem in the feed where the house can see it
@@ -133,58 +131,38 @@ async function postOne(
   const period = periodKey(template.cadence as Cadence, dueISO);
 
   const { expense, houseId } = await db.transaction(async (tx) => {
-    const [owner] = await tx
-      .select({ userId: schema.houseMembers.userId })
-      .from(schema.houseMembers)
-      .where(
-        and(
-          eq(schema.houseMembers.houseId, template.houseId),
-          eq(schema.houseMembers.userId, template.ownerId),
-          isNull(schema.houseMembers.leftAt),
-        ),
-      );
-    if (!owner) throw new BillPostingProblem('the bill owner is no longer a house member');
-
-    let participants: string[];
-    let weightsBp: Record<string, number> | undefined;
-    if (template.splitMode === 'room_weighted') {
-      const assignments = await tx
-        .select({ userId: schema.houseMembers.userId, weightBp: schema.rooms.weightBp })
-        .from(schema.houseMembers)
-        .innerJoin(schema.rooms, eq(schema.rooms.id, schema.houseMembers.roomId))
-        .where(
-          and(
-            eq(schema.houseMembers.houseId, template.houseId),
-            isNull(schema.houseMembers.leftAt),
-            isNotNull(schema.houseMembers.roomId),
-          ),
-        );
-      participants = assignments.map((a) => a.userId);
-      weightsBp = Object.fromEntries(assignments.map((a) => [a.userId, a.weightBp]));
-      // computeSplits enforces the 10000bp sum; a vacant room surfaces
-      // there as a SplitError and pauses the template
-    } else {
-      const members = await tx
-        .select({ userId: schema.houseMembers.userId })
-        .from(schema.houseMembers)
-        .where(
-          and(eq(schema.houseMembers.houseId, template.houseId), isNull(schema.houseMembers.leftAt)),
-        );
-      participants = members.map((m) => m.userId);
+    // one SHARE-locked membership read, shared with the API's posting
+    // path (@homi/ledger), so a placeholder claim (H11) or a member
+    // removal serializes with this posting instead of racing it
+    const members = await lockActiveMembers(tx, template.houseId);
+    if (!members.some((m) => m.userId === template.ownerId)) {
+      throw new PostingProblem('the bill owner is no longer a house member');
     }
-    if (participants.length === 0) throw new BillPostingProblem('the house has no active members');
 
-    const splits = computeSplits({
-      totalCents: template.amountCents,
-      paidBy: template.ownerId,
-      mode: template.splitMode as 'equal' | 'room_weighted',
-      participants,
-      weightsBp,
-    });
+    // participants derive at posting time: everyone for an equal split,
+    // the room-assigned members for a room-weighted one. A vacant room
+    // surfaces in computeSplits as a broken 10000bp sum (SplitError)
+    // and pauses the template.
+    const participants = (
+      template.splitMode === 'room_weighted' ? members.filter((m) => m.roomId !== null) : members
+    ).map((m) => m.userId);
+    if (participants.length === 0) throw new PostingProblem('the house has no active members');
 
-    const [expense] = await tx
-      .insert(schema.expenses)
-      .values({
+    const splits = await resolveSplits(
+      tx,
+      template.houseId,
+      {
+        amountCents: template.amountCents,
+        paidBy: template.ownerId,
+        mode: template.splitMode as 'equal' | 'room_weighted',
+        participants,
+      },
+      members,
+    );
+
+    const expense = await insertExpense(
+      tx,
+      {
         houseId: template.houseId,
         description: template.description,
         amountCents: template.amountCents,
@@ -193,16 +171,8 @@ async function postOne(
         templateId: template.id,
         period,
         createdBy: template.ownerId,
-      })
-      .returning();
-    if (!expense) throw new Error('insert returned no row');
-
-    await tx.insert(schema.expenseSplits).values(
-      Object.entries(splits).map(([userId, amountCents]) => ({
-        expenseId: expense.id,
-        userId,
-        amountCents,
-      })),
+      },
+      splits,
     );
 
     await tx.insert(schema.activityEvents).values({
