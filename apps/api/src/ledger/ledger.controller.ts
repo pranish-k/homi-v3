@@ -3,7 +3,6 @@ import {
   Body,
   Controller,
   Get,
-  Headers,
   Param,
   Patch,
   Post,
@@ -17,7 +16,8 @@ import type { Response } from 'express';
 import { z } from 'zod';
 import { AuthGuard, type AuthedRequest } from '../auth/auth.guard';
 import { HouseMemberGuard } from '../auth/house-member.guard';
-import { parseBody, UUID_RE } from '../lib/validation';
+import { parseBody } from '../lib/validation';
+import { IdempotencyKey, UuidPipe } from '../lib/uuid.pipe';
 import { BillsService } from './bills.service';
 import { LedgerService } from './ledger.service';
 
@@ -78,12 +78,9 @@ export class LedgerController {
     @Req() req: AuthedRequest,
     @Res() res: Response,
     @Param('houseId') houseId: string,
-    @Headers('idempotency-key') idempotencyKey: string | undefined,
+    @IdempotencyKey() idempotencyKey: string,
     @Body() body: unknown,
   ) {
-    if (!idempotencyKey || !UUID_RE.test(idempotencyKey)) {
-      throw new BadRequestException('Idempotency-Key header (UUID) is required on money mutations');
-    }
     const input = parseBody(createBillSchema, body);
     const result = await this.bills.createBill(houseId, req.userId, idempotencyKey, input);
     res.status(result.status).json(result.body);
@@ -98,10 +95,9 @@ export class LedgerController {
   async setBillActive(
     @Req() req: AuthedRequest,
     @Param('houseId') houseId: string,
-    @Param('billId') billId: string,
+    @Param('billId', UuidPipe) billId: string,
     @Body() body: unknown,
   ) {
-    if (!UUID_RE.test(billId)) throw new BadRequestException('billId must be a UUID');
     const input = parseBody(setBillActiveSchema, body);
     return this.bills.setActive(houseId, billId, req.userId, input.active);
   }
@@ -111,12 +107,9 @@ export class LedgerController {
     @Req() req: AuthedRequest,
     @Res() res: Response,
     @Param('houseId') houseId: string,
-    @Headers('idempotency-key') idempotencyKey: string | undefined,
+    @IdempotencyKey() idempotencyKey: string,
     @Body() body: unknown,
   ) {
-    if (!idempotencyKey || !UUID_RE.test(idempotencyKey)) {
-      throw new BadRequestException('Idempotency-Key header (UUID) is required on money mutations');
-    }
     const input = parseBody(recordPaymentSchema, body);
     const result = await this.ledger.recordPayment(houseId, req.userId, idempotencyKey, input);
     res.status(result.status).json(result.body);
@@ -127,12 +120,9 @@ export class LedgerController {
     @Req() req: AuthedRequest,
     @Res() res: Response,
     @Param('houseId') houseId: string,
-    @Headers('idempotency-key') idempotencyKey: string | undefined,
+    @IdempotencyKey() idempotencyKey: string,
     @Body() body: unknown,
   ) {
-    if (!idempotencyKey || !UUID_RE.test(idempotencyKey)) {
-      throw new BadRequestException('Idempotency-Key header (UUID) is required on money mutations');
-    }
     const input = parseBody(createExpenseSchema, body);
     const result = await this.ledger.createExpense(houseId, req.userId, idempotencyKey, input);
     res.status(result.status).json(result.body);
@@ -165,16 +155,13 @@ export class PaymentsController {
 
   /** Membership and recipient checks happen in the service against the payment's house (H9). */
   @Post(':paymentId/dispute')
-  async dispute(@Req() req: AuthedRequest, @Param('paymentId') paymentId: string) {
-    // a non-UUID id must 400 here, not surface as a Postgres cast error
-    if (!UUID_RE.test(paymentId)) throw new BadRequestException('paymentId must be a UUID');
+  async dispute(@Req() req: AuthedRequest, @Param('paymentId', UuidPipe) paymentId: string) {
     return this.ledger.disputePayment(paymentId, req.userId);
   }
 
   /** HOMI-29: the recipient confirms a disputed payment did happen; it counts in balances again. */
   @Post(':paymentId/resolve')
-  async resolve(@Req() req: AuthedRequest, @Param('paymentId') paymentId: string) {
-    if (!UUID_RE.test(paymentId)) throw new BadRequestException('paymentId must be a UUID');
+  async resolve(@Req() req: AuthedRequest, @Param('paymentId', UuidPipe) paymentId: string) {
     return this.ledger.resolvePayment(paymentId, req.userId);
   }
 }
@@ -189,14 +176,10 @@ export class ExpensesController {
   async edit(
     @Req() req: AuthedRequest,
     @Res() res: Response,
-    @Param('expenseId') expenseId: string,
-    @Headers('idempotency-key') idempotencyKey: string | undefined,
+    @Param('expenseId', UuidPipe) expenseId: string,
+    @IdempotencyKey() idempotencyKey: string,
     @Body() body: unknown,
   ) {
-    if (!idempotencyKey || !UUID_RE.test(idempotencyKey)) {
-      throw new BadRequestException('Idempotency-Key header (UUID) is required on money mutations');
-    }
-    if (!UUID_RE.test(expenseId)) throw new BadRequestException('expenseId must be a UUID');
     const input = parseBody(editExpenseSchema, body);
     const result = await this.ledger.editExpense(expenseId, req.userId, idempotencyKey, input);
     res.status(result.status).json(result.body);
