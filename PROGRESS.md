@@ -1,6 +1,6 @@
 # HOMI v3 Progress
 
-**Last updated:** 2026-07-13 (Sprint 4 closed)
+**Last updated:** 2026-07-14 (Sprint 4 tagged and shipped, CI green)
 
 ## Demo detour (2026-07-11)
 
@@ -19,7 +19,7 @@ The API itself checked out: balances, pairwise netting, dispute guards, and idem
 
 
 **Phase:** R1 Money Core (weeks 1-12, committed scope)
-**Repo:** https://github.com/pranish-k/homi-v3 · tag `v0.3.0-sprint3` + review fixes (`312f7ad`) · CI: green (main and tag runs)
+**Repo:** https://github.com/pranish-k/homi-v3 · tag `v0.4.0-sprint4` (`58e8372`) · CI: green (main and tag runs)
 
 ## Done (Code review + hardening, 2026-07-09)
 
@@ -42,8 +42,11 @@ The API itself checked out: balances, pairwise netting, dispute guards, and idem
 - Expense edits: full-respec PUT snapshots previous fields AND splits into expense_revisions in-transaction; splits recompute through the same domain path as creation [HOMI-12]
 - Dispute resolution: recipient-only disputed -> resolved, SQL-guarded; balances count resolved again [HOMI-29]
 - Stretch: hourly idempotency-key pruning, 30-day retention, batched [HOMI-26]
-- Review gate (inline): HouseMemberGuard turned garbage houseIds into Postgres cast 500s on every house route; fixed with entity-route guards to match (third instance of this bug class - Sprint 5 should close it with a validation pipe)
+- Review gate ran twice: the inline pass fixed the UUID-cast-500 class (HouseMemberGuard + entity routes, third instance - Sprint 5 closes it with a validation pipe); the multi-agent review (8 finder angles + verification, 2026-07-14) found zero correctness bugs and ten cleanup findings
+- Mechanical review findings applied before tagging (`58e8372`): isUniqueViolation -> @homi/db, RealtimeHint -> @homi/domain (worker and gateway share the wire type), isoAddDays -> domain schedule module, due-scan next_run SQL bound rides idx_bill_templates_due, loop-invariant hoist, forwarding wrapper and dead test variable removed
+- Structural findings carry to Sprint 5: higher-order idempotency wrapper (H1 by construction), shared posting core so worker/API money logic cannot drift, the UUID route-param pipe
 - Integration suite 32 -> 51 tests (41 API + 10 worker, new worker vitest harness); green with and without REDIS_URL
+- Tagged `v0.4.0-sprint4`, pushed with main; CI green on both runs
 
 ## Done (HOMI-28 member names, 2026-07-13)
 
