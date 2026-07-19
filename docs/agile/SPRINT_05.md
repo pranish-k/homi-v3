@@ -38,4 +38,28 @@ and the shared posting core so worker and API money logic cannot drift.
 
 ## Sprint review notes (filled at close)
 
+All three committed stories done plus the three structural carryovers: 11 points and the ~5-point refactor block.
+The carryovers landed first, in the planned dependency order.
+The route-param UUID pipe (`apps/api/src/lib/uuid.pipe.ts`) closes the three-times-fixed cast-500 class at the boundary, with the Idempotency-Key header validated the same way.
+`withIdempotency` makes every idempotency-keyed mutation H1 by construction: the wrapper owns the replay lookup, the store-inside-transaction, and the replay-after-losing-a-race; four endpoints shed their copies.
+`@homi/ledger` owns member locking, split resolution, and expense insertion; API expense create/edit and the worker's bill posting all post through it, so who-owes-what cannot drift between consumers.
+HOMI-23 landed on the core as planned: `divideRoomWeight` divides a room's weight evenly across occupants with the remainder basis point pinned to the earlier-joined occupant, property-tested in the domain package, and the 10000bp invariant stays checked in computeSplits.
+HOMI-9 landed hazards-first per the standing retro action: placeholders owe but can never act (payer, payment party, and bill owner all refuse them), the claim is one transaction under FOR UPDATE on the placeholder's membership row, expense resolution SHARE-locks participant rows so an edit and a claim serialize, racing claimers resolve to exactly one winner, and split merges fold a returning member's share without changing any expense total.
+HOMI-22 dropped `auth_identities`, `sessions`, and `users.avatar_path` in migration 0006 after grep confirmed zero readers since HOMI-2; the expand-migrate-contract loop that opened in Sprint 2 is closed.
+The integration suite grew from 51 to 63 tests (53 API + 10 worker), green on typecheck, lint, and both suites.
+
+The review gate ran 2026-07-19 (8 finder angles, then one verifier per surviving candidate): ten findings survived verification, six of them correctness bugs, all fixed before tagging.
+The three worst lived in the claim path's rare branches: a claimer who was already an active member never inherited the placeholder's room (orphaning it and breaking every room-weighted posting house-wide), the same accept losing a concurrent membership-insert race double-logged member.joined and misreported alreadyMember, and the claim's split fold changed a visible per-line amount with no expense_revisions snapshot or feed event (HOMI-12 bypass).
+Also fixed: GET /rooms still returned one row per occupant after HOMI-23 made rooms shareable (now one row per room with userIds), placeholder creation had no rate limit while its sibling invite routes did, and createInvite validated the placeholder outside any lock so a race could bind an invite to an already-claimed placeholder.
+Each fix carries a regression test.
+Four structural findings carry to Sprint 6: the placeholder cannot-act guard exists as three unlocked hand-rolled copies and belongs in @homi/ledger with the core's lock discipline, `lockActiveMembers` SHARE-locks the whole house when equal/exact/percent postings only need participants (a claim-starvation risk under posting traffic), the active-admin check is copy-pasted across four services and wants a shared requireAdmin, and the drizzle connection type is defined three times (LedgerConn, DbConn, Tx) and wants one home in @homi/db.
+
 ## Retrospective
+
+**Went well:** refactors-before-features paid off exactly as planned; HOMI-23's weight derivation and HOMI-9's guards were written once against the shared core, and the worker inherited both for free.
+Designing HOMI-9 from the hazard list meant the hard part (two claimers, edit-versus-claim races, the fold) had answers before code, and the racing-claimers integration test pinned H11 for good.
+The review gate earned its keep again: six real correctness bugs found and fixed before the tag, where Sprint 4's diff had zero.
+**Needs improvement:** all three serious bugs sat in the claim path's rare branches (already-a-member, lost insert race), which the feature work designed for but never tested; hazard-first design needs hazard-first tests, branch by branch, not just the headline race.
+Locking scope was decided implicitly (whole house instead of participants) and the review had to surface the contention cost; lock-scope choices in shared cores deserve an explicit note at design time.
+**Action:** Sprint 6 opens with the four structural carryovers so the money paths keep one implementation of each invariant.
+HOMI-14 + HOMI-21 (deploy + email) stay blocked on accounts and travel together when unblocked; HOMI-18/19 wait behind that delivery channel.

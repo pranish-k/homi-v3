@@ -22,7 +22,7 @@ Priority order within each epic is top to bottom.
 | HOMI-2 | As a user, I can sign in with Apple, Google, or an email magic link via Better Auth (no passwords) | 8 | Done (Sprint 2) |
 | HOMI-3 | As a user, I can create a house with a timezone and currency, and I become its admin | 3 | Done (Sprint 1) |
 | HOMI-8 | As an admin, I can create an invite link that a roommate can accept to join the house | 5 | Done (Sprint 2) |
-| HOMI-9 | As a member, I can log expenses against a placeholder roommate who later claims their history atomically (H11) | 8 | Backlog |
+| HOMI-9 | As a member, I can log expenses against a placeholder roommate who later claims their history atomically (H11) | 8 | Done (Sprint 5) |
 | HOMI-10 | As a house, we can define rooms with weight basis points that sum to 10000, for room-weighted splits | 3 | Done (Sprint 2) |
 | HOMI-28 | As a user, I set my name at sign-up (and optionally a per-house display name), so no surface ever shows a nameless member; magic-link signup currently leaves name empty and nothing writes the existing display_name column (found on the demo/web detour) | 3 | Done (2026-07-13) |
 
@@ -53,8 +53,8 @@ Priority order within each epic is top to bottom.
 | ID | Story | Points | Status |
 |---|---|---|---|
 | HOMI-21 | As a user, magic-link and notification emails are delivered via a transactional email provider | 3 | Backlog |
-| HOMI-22 | As a developer, the legacy hand-rolled auth tables are dropped (contract phase of the HOMI-2 migration, H7) | 1 | Backlog |
-| HOMI-23 | As a couple sharing a room, our room's weight splits across both occupants | 2 | Backlog |
+| HOMI-22 | As a developer, the legacy hand-rolled auth tables are dropped (contract phase of the HOMI-2 migration, H7) | 1 | Done (Sprint 5) |
+| HOMI-23 | As a couple sharing a room, our room's weight splits across both occupants | 2 | Done (Sprint 5) |
 | HOMI-24 | As an operator, auth and invite endpoints are rate limited (spec 5.5; magic-link send is an unauthenticated email loop) | 3 | Done (Sprint 3) |
 | HOMI-25 | As the system, getBalances reads expenses and payments in one consistent snapshot instead of two statements | 2 | Done (Sprint 3) |
 | HOMI-26 | As an operator, idempotency keys are pruned by a worker job after a retention window | 2 | Done (Sprint 4) |

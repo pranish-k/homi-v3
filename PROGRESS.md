@@ -1,6 +1,6 @@
 # HOMI v3 Progress
 
-**Last updated:** 2026-07-14 (Sprint 4 tagged and shipped, CI green)
+**Last updated:** 2026-07-19 (Sprint 5 tagged and shipped)
 
 ## Demo detour (2026-07-11)
 
@@ -19,7 +19,17 @@ The API itself checked out: balances, pairwise netting, dispute guards, and idem
 
 
 **Phase:** R1 Money Core (weeks 1-12, committed scope)
-**Repo:** https://github.com/pranish-k/homi-v3 · tag `v0.4.0-sprint4` (`58e8372`) · CI: green (main and tag runs)
+**Repo:** https://github.com/pranish-k/homi-v3 · tag `v0.5.0-sprint5` · CI: see latest main/tag runs
+
+## Done (Sprint 5, 2026-07-19)
+
+- Sprint 4 structural carryovers landed first, in dependency order: route-param UUID pipe closes the cast-500 class at the boundary, withIdempotency wrapper makes every keyed mutation H1 by construction, and @homi/ledger is the one posting core the API and worker both post through
+- Placeholder roommates: admin-created, they owe shares but can never act (payer, payment party, bill owner all refuse); claim rides a bound invite and is one transaction under FOR UPDATE, with expense resolution SHARE-locking participants so edits and claims serialize (H11); racing claimers resolve to one winner; a returning member's share folds without changing any expense total [HOMI-9]
+- Shared rooms: a room's weight divides across its occupants, remainder basis point to the earlier-joined occupant, derived in the shared core so API and worker cannot drift [HOMI-23]
+- Legacy auth tables dropped (migration 0006); the Sprint 2 expand-migrate-contract loop is closed [HOMI-22]
+- Review gate ran 2026-07-19 (8 finder angles + one verifier per candidate): ten confirmed findings, six correctness bugs fixed before tagging, each with a regression test - the worst three lived in the claim path's rare branches (already-active claimer lost the placeholder's room and broke room-weighted postings, a lost insert race double-logged member.joined, the split fold bypassed the HOMI-12 revision snapshot); plus GET /rooms multi-occupant shape, a missing rate limit on placeholder creation, and a createInvite TOCTOU
+- Structural findings carry to Sprint 6: placeholder cannot-act guard belongs in @homi/ledger with lock discipline (three unlocked copies today), lockActiveMembers scopes down to participants for non-room modes (claim-starvation risk), shared requireAdmin (four copies), one drizzle connection type in @homi/db (three copies)
+- Integration suite 51 -> 63 tests (53 API + 10 worker); typecheck, lint, unit, and integration all green
 
 ## Done (Code review + hardening, 2026-07-09)
 
@@ -94,10 +104,10 @@ The API itself checked out: balances, pairwise netting, dispute guards, and idem
 
 ## Next steps and what to be mindful of
 
-1. **Sprint 5 opener (retro action): HOMI-9 placeholder roommates as the centerpiece** - 8 points, atomic history claim (H11).
-2. **HOMI-21 + HOMI-14 travel together:** email delivery is what blocks real invites in a deployed environment, and the deploy target is what makes an email provider worth wiring.
-3. **Close the UUID-cast bug class for good:** three fixes in three shapes (WS path, entity routes, house guard); a route-param validation pipe belongs at the boundary layer.
-4. **Debt to carry consciously:** magic-link emails are only logged until HOMI-21; legacy auth tables await the HOMI-22 contract migration; shared rooms are HOMI-23.
+1. **Sprint 6 opener: the four structural review carryovers** - locked cannot-act guard in @homi/ledger, participant-scoped lockActiveMembers, shared requireAdmin, one connection type in @homi/db - so each money invariant keeps one implementation.
+2. **HOMI-21 + HOMI-14 travel together:** email delivery is what blocks real invites in a deployed environment, and the deploy target is what makes an email provider worth wiring; both blocked on accounts (GCP project, email provider). HOMI-18/19 wait behind that delivery channel.
+3. **Retro lesson: hazard-first tests, not just hazard-first design** - Sprint 5's three serious bugs all sat in designed-but-untested rare branches of the claim path.
+4. **Debt to carry consciously:** magic-link emails are only logged until HOMI-21; two rooms cannot merge when a roomed member claims a roomed placeholder (admin re-runs PUT /rooms; documented in acceptInvite).
 5. **HOMI-14 Cloud Run deploy.**
    CI deploy jobs are placeholders gated on `GCP_WORKLOAD_IDENTITY_PROVIDER`; needs GCP project + Workload Identity setup.
    Note: production now requires REDIS_URL (realtime fan-out and rate limits refuse the in-process fallback) and BETTER_AUTH_SECRET.
