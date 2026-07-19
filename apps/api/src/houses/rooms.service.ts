@@ -103,8 +103,9 @@ export class RoomsService {
     });
   }
 
+  /** HOMI-23: a shared room is ONE row with all its occupants, mirroring the PUT input shape. */
   async getRooms(houseId: string) {
-    return this.db
+    const rows = await this.db
       .select({
         id: schema.rooms.id,
         name: schema.rooms.name,
@@ -120,5 +121,16 @@ export class RoomsService {
         ),
       )
       .where(eq(schema.rooms.houseId, houseId));
+
+    const rooms = new Map<string, { id: string; name: string; weightBp: number; userIds: string[] }>();
+    for (const row of rows) {
+      let room = rooms.get(row.id);
+      if (!room) {
+        room = { id: row.id, name: row.name, weightBp: row.weightBp, userIds: [] };
+        rooms.set(row.id, room);
+      }
+      if (row.occupantId !== null) room.userIds.push(row.occupantId);
+    }
+    return [...rooms.values()];
   }
 }

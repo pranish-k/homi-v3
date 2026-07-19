@@ -19,8 +19,6 @@ import { ActivityService } from '../activity/activity.service';
 import { DB } from '../db.module';
 import { decodeCursor, encodeCursor } from '../lib/cursor';
 
-export type { DbConn };
-
 /** HOMI-11: how long the recipient can dispute a recorded payment. */
 export const DISPUTE_WINDOW_MS = 72 * 60 * 60 * 1000;
 

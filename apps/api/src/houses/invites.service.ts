@@ -5,9 +5,9 @@ import {
   Inject,
   Injectable,
 } from '@nestjs/common';
-import { and, eq, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { schema, type Db } from '@homi/db';
-import { ActivityService, type Tx } from '../activity/activity.service';
+import { ActivityService, type LogActivity, type Tx } from '../activity/activity.service';
 import { DB } from '../db.module';
 
 const INVITE_TTL_DAYS = 7;
@@ -42,34 +42,41 @@ export class InvitesService {
     if (actor?.role !== 'admin') {
       throw new ForbiddenException('Only house admins can create invites');
     }
-    if (placeholderId !== undefined) {
-      const [placeholder] = await this.db
-        .select({ claimedBy: schema.houseMembers.claimedBy })
-        .from(schema.houseMembers)
-        .where(
-          and(
-            eq(schema.houseMembers.houseId, houseId),
-            eq(schema.houseMembers.userId, placeholderId),
-            eq(schema.houseMembers.isPlaceholder, true),
-            isNull(schema.houseMembers.leftAt),
-          ),
-        );
-      if (!placeholder || placeholder.claimedBy !== null) {
-        throw new BadRequestException('placeholderId must be an unclaimed placeholder of this house');
-      }
-    }
     const token = randomBytes(32).toString('base64url');
     const expiresAt = new Date(Date.now() + INVITE_TTL_DAYS * 24 * 60 * 60 * 1000);
-    const [invite] = await this.db
-      .insert(schema.invites)
-      .values({
-        houseId,
-        tokenHash: hashToken(token),
-        createdBy: actorId,
-        expiresAt,
-        placeholderUserId: placeholderId,
-      })
-      .returning();
+    // The unclaimed check and the insert share a transaction, with the
+    // placeholder row locked FOR UPDATE: a concurrent claim (which takes
+    // the same lock in acceptInvite) commits strictly before or after,
+    // so an invite can never be bound to an already-claimed placeholder.
+    const [invite] = await this.db.transaction(async (tx) => {
+      if (placeholderId !== undefined) {
+        const [placeholder] = await tx
+          .select({ claimedBy: schema.houseMembers.claimedBy })
+          .from(schema.houseMembers)
+          .where(
+            and(
+              eq(schema.houseMembers.houseId, houseId),
+              eq(schema.houseMembers.userId, placeholderId),
+              eq(schema.houseMembers.isPlaceholder, true),
+              isNull(schema.houseMembers.leftAt),
+            ),
+          )
+          .for('update');
+        if (!placeholder || placeholder.claimedBy !== null) {
+          throw new BadRequestException('placeholderId must be an unclaimed placeholder of this house');
+        }
+      }
+      return tx
+        .insert(schema.invites)
+        .values({
+          houseId,
+          tokenHash: hashToken(token),
+          createdBy: actorId,
+          expiresAt,
+          placeholderUserId: placeholderId,
+        })
+        .returning();
+    });
     if (!invite) throw new Error('insert returned no row');
     const origin = process.env.INVITE_LINK_ORIGIN ?? 'https://homi.app';
     return {
@@ -149,7 +156,7 @@ export class InvitesService {
         inheritedRoomId = placeholder.roomId;
       }
 
-      const alreadyMember = existing?.leftAt === null;
+      let alreadyMember = existing?.leftAt === null;
       if (!existing) {
         // onConflictDoNothing: a concurrent accept via a different invite
         // may win the insert; losing quietly is the correct outcome
@@ -158,8 +165,15 @@ export class InvitesService {
           .values({ houseId: invite.houseId, userId, roomId: inheritedRoomId })
           .onConflictDoNothing()
           .returning();
-        if (inserted.length === 0 && invite.placeholderUserId === null) {
-          return { houseId: invite.houseId, alreadyMember: true, claimedPlaceholderId: null };
+        if (inserted.length === 0) {
+          if (invite.placeholderUserId === null) {
+            return { houseId: invite.houseId, alreadyMember: true, claimedPlaceholderId: null };
+          }
+          // Lost the insert race to a concurrent accept but still owe the
+          // claim: the winner already logged member.joined, so this accept
+          // must not log a second one, and the winner's row (inserted
+          // without a room) inherits the placeholder's room below.
+          alreadyMember = true;
         }
       } else if (existing.leftAt !== null) {
         // returning member (Y4): reactivate with plain member role (an
@@ -178,7 +192,28 @@ export class InvitesService {
       let claimedPlaceholderId: string | null = null;
       if (invite.placeholderUserId !== null) {
         claimedPlaceholderId = invite.placeholderUserId;
-        await this.claimHistory(tx, invite.houseId, invite.placeholderUserId, userId);
+        if (inheritedRoomId !== null) {
+          // The insert and reactivate branches assign the room directly;
+          // this covers a claimer who was already an active member (or won
+          // membership through a racing accept): they inherit the
+          // placeholder's room unless they already occupy one, so claiming
+          // never leaves the room occupant-less and room-weighted splits
+          // still sum to 10000bp. A claimer who does occupy another room
+          // keeps it - two rooms cannot merge - and the admin re-runs
+          // PUT /rooms.
+          await tx
+            .update(schema.houseMembers)
+            .set({ roomId: inheritedRoomId })
+            .where(
+              and(
+                eq(schema.houseMembers.houseId, invite.houseId),
+                eq(schema.houseMembers.userId, userId),
+                isNull(schema.houseMembers.roomId),
+                isNull(schema.houseMembers.leftAt),
+              ),
+            );
+        }
+        await this.claimHistory(tx, invite.houseId, invite.placeholderUserId, userId, log);
         await log({
           houseId: invite.houseId,
           actorId: userId,
@@ -208,17 +243,78 @@ export class InvitesService {
 
   /**
    * HOMI-9 (H11): the placeholder's ledger lines become the claimer's,
-   * in the claim's own transaction. Amounts never change - this is
+   * in the claim's own transaction. No expense total changes - this is
    * re-identification, not a money edit, so append-only money truth
    * (invariant 1) stands. Where the claimer already holds a split in
    * the same expense (a returning member who left history behind), the
-   * placeholder's share folds into it; the placeholder can never be a
-   * payer or a payment party (posting core + payment guards), so splits
-   * are the whole history. The membership row is deactivated, never
-   * deleted (invariant 5), with claimed_by as the audit pointer, and
-   * the orphaned users row soft-deletes.
+   * placeholder's share folds into it - and because that visibly changes
+   * the claimer's per-line amount, the fold snapshots the prior state
+   * into expense_revisions and surfaces expense.edited, exactly like an
+   * edit (HOMI-12). The placeholder can never be a payer or a payment
+   * party (posting core + payment guards), so splits are the whole
+   * history. The membership row is deactivated, never deleted
+   * (invariant 5), with claimed_by as the audit pointer, and the
+   * orphaned users row soft-deletes.
    */
-  private async claimHistory(tx: Tx, houseId: string, placeholderId: string, claimerId: string) {
+  private async claimHistory(
+    tx: Tx,
+    houseId: string,
+    placeholderId: string,
+    claimerId: string,
+    log: LogActivity,
+  ) {
+    const folded = await tx
+      .select()
+      .from(schema.expenses)
+      .where(
+        and(
+          sql`EXISTS (SELECT 1 FROM expense_splits s WHERE s.expense_id = ${schema.expenses.id} AND s.user_id = ${placeholderId})`,
+          sql`EXISTS (SELECT 1 FROM expense_splits s WHERE s.expense_id = ${schema.expenses.id} AND s.user_id = ${claimerId})`,
+        ),
+      );
+    if (folded.length > 0) {
+      const foldedIds = folded.map((e) => e.id);
+      const foldedSplits = await tx
+        .select({
+          expenseId: schema.expenseSplits.expenseId,
+          userId: schema.expenseSplits.userId,
+          amountCents: schema.expenseSplits.amountCents,
+        })
+        .from(schema.expenseSplits)
+        .where(inArray(schema.expenseSplits.expenseId, foldedIds));
+      await tx.insert(schema.expenseRevisions).values(
+        folded.map((expense) => ({
+          expenseId: expense.id,
+          changedBy: claimerId,
+          previous: {
+            expense: {
+              description: expense.description,
+              amountCents: expense.amountCents,
+              currency: expense.currency,
+              paidBy: expense.paidBy,
+              category: expense.category,
+              isStaple: expense.isStaple,
+            },
+            splits: Object.fromEntries(
+              foldedSplits
+                .filter((s) => s.expenseId === expense.id)
+                .map((s) => [s.userId, s.amountCents]),
+            ),
+          },
+        })),
+      );
+      for (const expense of folded) {
+        await log({
+          houseId,
+          actorId: claimerId,
+          type: 'expense.edited',
+          entityType: 'expense',
+          entityId: expense.id,
+          payload: { amountCents: expense.amountCents, description: expense.description },
+        });
+      }
+    }
+
     await tx.execute(sql`
       UPDATE expense_splits AS mine
       SET amount_cents = mine.amount_cents + theirs.amount_cents

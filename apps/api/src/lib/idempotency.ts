@@ -3,8 +3,6 @@ import { and, eq } from 'drizzle-orm';
 import { isUniqueViolation, schema, type Db } from '@homi/db';
 import { hashRequest } from './request-hash';
 
-export { isUniqueViolation };
-
 /** A Db or a transaction handle within one; both run the same query builders. */
 export type DbConn = Db | Parameters<Parameters<Db['transaction']>[0]>[0];
 
@@ -21,11 +19,12 @@ export interface StoredResponse {
 export type StoreResponse = (tx: DbConn, response: StoredResponse) => Promise<void>;
 
 /**
- * H1 replay lookup, shared by every idempotency-keyed mutation. Scoped
- * to (key, user, endpoint); a matching key with a different body is a
- * client bug and gets a 409, never someone else's stored response.
+ * H1 replay lookup, owned by withIdempotency (the module's one public
+ * entry point). Scoped to (key, user, endpoint); a matching key with a
+ * different body is a client bug and gets a 409, never someone else's
+ * stored response.
  */
-export async function findStoredResponse(
+async function findStoredResponse(
   db: Db,
   key: string,
   userId: string,

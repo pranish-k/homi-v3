@@ -214,7 +214,7 @@ describe('placeholder roommates (HOMI-9)', () => {
       .set('Cookie', sam.cookie)
       .expect(200);
     expect(rooms.body).toContainEqual(
-      expect.objectContaining({ name: 'Back room', occupantId: sam.userId }),
+      expect.objectContaining({ name: 'Back room', userIds: [sam.userId] }),
     );
 
     // the claim is audited and the orphaned users row soft-deletes
@@ -275,6 +275,68 @@ describe('placeholder roommates (HOMI-9)', () => {
       [eve],
     );
     expect(ghost).toHaveLength(0);
+
+    // the fold visibly changed ben's split, so it audits like an edit
+    // (HOMI-12, review fix): prior state snapshots and the feed hears
+    const { rows: revisions } = await pool.query(
+      `SELECT er.previous FROM expense_revisions er
+       JOIN expenses e ON e.id = er.expense_id
+       WHERE e.description = 'Utilities' AND er.changed_by = $1`,
+      [ben.userId],
+    );
+    expect(revisions).toHaveLength(1);
+    expect(revisions[0].previous.splits[ben.userId]).toBe(1000);
+    expect(revisions[0].previous.splits[eve]).toBe(1000);
+    const { rows: events } = await pool.query(
+      `SELECT 1 FROM activity_events ae
+       JOIN expenses e ON e.id = ae.entity_id
+       WHERE e.description = 'Utilities' AND ae.type = 'expense.edited' AND ae.actor_id = $1`,
+      [ben.userId],
+    );
+    expect(events).toHaveLength(1);
+  });
+
+  it('hands the placeholder room to a claimer who was already an active member (review fix)', async () => {
+    // dana joined via a plain link and has no room; the fay placeholder
+    // occupies one. Claiming must not leave that room occupant-less.
+    const run = randomUUID().slice(0, 8);
+    const dana = await signIn(http, `dana-${run}@example.com`, 'Dana');
+    const plain = await request(http)
+      .post(`/v1/houses/${houseId}/invites`)
+      .set('Cookie', ana.cookie)
+      .expect(201);
+    const plainToken = plain.body.url.split('/j/')[1];
+    await request(http)
+      .post(`/v1/invites/${plainToken}/accept`)
+      .set('Cookie', dana.cookie)
+      .expect(201);
+
+    const fay = await createPlaceholder('Fay').then((r) => r.body.userId as string);
+    await request(http)
+      .put(`/v1/houses/${houseId}/rooms`)
+      .set('Cookie', ana.cookie)
+      .send({
+        rooms: [
+          { name: 'Master', weightBp: 6000, userIds: [ana.userId, ben.userId] },
+          { name: 'Fay room', weightBp: 4000, userIds: [fay] },
+        ],
+      })
+      .expect(200);
+
+    const token = await createClaimInvite(fay);
+    const accept = await request(http)
+      .post(`/v1/invites/${token}/accept`)
+      .set('Cookie', dana.cookie)
+      .expect(201);
+    expect(accept.body).toEqual({ houseId, alreadyMember: true, claimedPlaceholderId: fay });
+
+    const rooms = await request(http)
+      .get(`/v1/houses/${houseId}/rooms`)
+      .set('Cookie', ana.cookie)
+      .expect(200);
+    expect(rooms.body).toContainEqual(
+      expect.objectContaining({ name: 'Fay room', userIds: [dana.userId] }),
+    );
   });
 
   it('lets exactly one of two racing claimers win (H11)', async () => {

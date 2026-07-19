@@ -95,6 +95,20 @@ describe('shared rooms (HOMI-23)', () => {
     expect(res.body.splits[cara.userId]).toBe(30000);
   });
 
+  it('returns a shared room as ONE row listing all occupants (review fix)', async () => {
+    const res = await request(http)
+      .get(`/v1/houses/${houseId}/rooms`)
+      .set('Cookie', ana.cookie)
+      .expect(200);
+    expect(res.body).toHaveLength(2);
+    const master = res.body.find((r: { name: string }) => r.name === 'Master');
+    const back = res.body.find((r: { name: string }) => r.name === 'Back room');
+    expect(master.userIds.sort()).toEqual([ben.userId, cara.userId].sort());
+    expect(back.userIds).toEqual([ana.userId]);
+    const total = res.body.reduce((acc: number, r: { weightBp: number }) => acc + r.weightBp, 0);
+    expect(total).toBe(10000);
+  });
+
   it('rejects a room-weighted expense that leaves out one of the room sharers', async () => {
     // without cara the weights cannot reach 10000bp; the split must not
     // silently hand her share to anyone else

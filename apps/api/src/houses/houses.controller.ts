@@ -11,8 +11,10 @@ import { RoomsService } from './rooms.service';
 import { SnapshotService } from './snapshot.service';
 
 // HOMI-24: invites gate house membership, so both creating and
-// accepting are budgeted per user. Generous for humans, hostile to
-// scripts enumerating tokens or spraying links.
+// accepting are budgeted per user - and placeholder creation shares the
+// budget shape, since it mints users rows the same way joining does.
+// Generous for humans, hostile to scripts enumerating tokens or
+// spraying links.
 const INVITE_RULE = { limit: 20, windowSec: 60 * 60 };
 
 const createHouseSchema = z.object({
@@ -86,7 +88,8 @@ export class HousesController {
 
   /** HOMI-9: log expenses against "Sam" before Sam joins; Sam claims via a bound invite. */
   @Post(':houseId/members/placeholders')
-  @UseGuards(HouseMemberGuard)
+  @UseGuards(HouseMemberGuard, RateLimitGuard)
+  @RateLimit({ bucket: 'placeholder:create', ...INVITE_RULE })
   async createPlaceholder(
     @Req() req: AuthedRequest,
     @Param('houseId') houseId: string,
