@@ -5,7 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { schema, type Db } from '@homi/db';
 import {
   isoAddDays,
@@ -15,6 +15,7 @@ import {
   ScheduleError,
   type Cadence,
 } from '@homi/domain';
+import { lockActingMember, PostingProblem } from '@homi/ledger';
 import { withIdempotency, type StoredResponse } from '../lib/idempotency';
 import { ActivityService } from '../activity/activity.service';
 import { activeMemberRole } from '../auth/house-role';
@@ -68,21 +69,14 @@ export class BillsService {
           .where(eq(schema.houses.id, houseId));
         if (!house) throw new BadRequestException('House not found');
 
-        const [owner] = await tx
-          .select({ isPlaceholder: schema.houseMembers.isPlaceholder })
-          .from(schema.houseMembers)
-          .where(
-            and(
-              eq(schema.houseMembers.houseId, houseId),
-              eq(schema.houseMembers.userId, ownerId),
-              isNull(schema.houseMembers.leftAt),
-            ),
-          );
-        if (!owner) throw new BadRequestException('Bill owner must be an active house member');
         // HOMI-9: the owner is who a posted bill records as payer, and a
-        // placeholder can never pay
-        if (owner.isPlaceholder) {
-          throw new BadRequestException('A placeholder roommate cannot own a bill');
+        // placeholder can never pay; the shared guard SHARE-locks so a
+        // concurrent claim (H11) serializes instead of racing this check
+        try {
+          await lockActingMember(tx, houseId, ownerId, { subject: 'Bill owner', verb: 'own a bill' });
+        } catch (err) {
+          if (err instanceof PostingProblem) throw new BadRequestException(err.message);
+          throw err;
         }
 
         // "after yesterday" so a bill created on its due day still posts
