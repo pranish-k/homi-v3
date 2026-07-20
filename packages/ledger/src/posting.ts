@@ -27,8 +27,18 @@ export interface ActiveMember {
  * the same rows: an expense resolved against the placeholder commits
  * either before the claim (and is swept into it) or after it (and
  * fails the active-member check).
+ *
+ * Sprint 5 review carryover: `userIds` scopes the read to the rows the
+ * posting actually resolves against, so a posting does not SHARE-lock
+ * the whole house and a claim of an UNinvolved placeholder never waits
+ * on it. Callers that derive weights from rooms must NOT scope: every
+ * co-occupant's row shapes the split (HOMI-23), so all of them lock.
  */
-export async function lockActiveMembers(tx: DbConn, houseId: string): Promise<ActiveMember[]> {
+export async function lockActiveMembers(
+  tx: DbConn,
+  houseId: string,
+  userIds?: string[],
+): Promise<ActiveMember[]> {
   return tx
     .select({
       userId: schema.houseMembers.userId,
@@ -37,7 +47,13 @@ export async function lockActiveMembers(tx: DbConn, houseId: string): Promise<Ac
       joinedAt: schema.houseMembers.joinedAt,
     })
     .from(schema.houseMembers)
-    .where(and(eq(schema.houseMembers.houseId, houseId), isNull(schema.houseMembers.leftAt)))
+    .where(
+      and(
+        eq(schema.houseMembers.houseId, houseId),
+        isNull(schema.houseMembers.leftAt),
+        userIds ? inArray(schema.houseMembers.userId, userIds) : undefined,
+      ),
+    )
     .for('share');
 }
 
@@ -97,10 +113,15 @@ export async function resolveSplits(
   input: ResolveSplitsInput,
   preloadedMembers?: ActiveMember[],
 ): Promise<Record<string, number>> {
-  const members = preloadedMembers ?? (await lockActiveMembers(tx, houseId));
+  const involved = [...new Set([...input.participants, input.paidBy])];
+  // equal/exact/percent resolve against the involved rows only;
+  // room_weighted reads the whole house because every co-occupant of a
+  // participant's room shapes the derived weights (HOMI-23)
+  const members =
+    preloadedMembers ??
+    (await lockActiveMembers(tx, houseId, input.mode === 'room_weighted' ? undefined : involved));
   const byId = new Map(members.map((m) => [m.userId, m]));
 
-  const involved = [...new Set([...input.participants, input.paidBy])];
   if (involved.some((id) => !byId.has(id))) {
     throw new PostingProblem('Payer and all participants must be active house members');
   }
