@@ -1,12 +1,8 @@
-import {
-  BadRequestException,
-  ForbiddenException,
-  Inject,
-  Injectable,
-} from '@nestjs/common';
+import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { schema, type Db } from '@homi/db';
 import { ActivityService } from '../activity/activity.service';
+import { requireAdmin } from '../auth/house-role';
 import { DB } from '../db.module';
 
 export interface RoomInput {
@@ -39,19 +35,7 @@ export class RoomsService {
     }
 
     return this.activity.transact(async (tx, log) => {
-      const [actor] = await tx
-        .select({ role: schema.houseMembers.role })
-        .from(schema.houseMembers)
-        .where(
-          and(
-            eq(schema.houseMembers.houseId, houseId),
-            eq(schema.houseMembers.userId, actorId),
-            isNull(schema.houseMembers.leftAt),
-          ),
-        );
-      if (actor?.role !== 'admin') {
-        throw new ForbiddenException('Only house admins can configure rooms');
-      }
+      await requireAdmin(tx, houseId, actorId, 'configure rooms');
       const activeMembers = await tx
         .select({ userId: schema.houseMembers.userId })
         .from(schema.houseMembers)

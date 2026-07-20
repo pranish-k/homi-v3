@@ -17,6 +17,7 @@ import {
 } from '@homi/domain';
 import { withIdempotency, type StoredResponse } from '../lib/idempotency';
 import { ActivityService } from '../activity/activity.service';
+import { activeMemberRole } from '../auth/house-role';
 import { DB } from '../db.module';
 
 export interface CreateBillInput {
@@ -144,17 +145,8 @@ export class BillsService {
         .for('update');
       if (!bill) throw new NotFoundException('Bill not found');
 
-      const [actor] = await tx
-        .select({ role: schema.houseMembers.role })
-        .from(schema.houseMembers)
-        .where(
-          and(
-            eq(schema.houseMembers.houseId, houseId),
-            eq(schema.houseMembers.userId, userId),
-            isNull(schema.houseMembers.leftAt),
-          ),
-        );
-      if (!actor || (actor.role !== 'admin' && bill.ownerId !== userId)) {
+      const role = await activeMemberRole(tx, houseId, userId);
+      if (role === null || (role !== 'admin' && bill.ownerId !== userId)) {
         throw new ForbiddenException('Only the bill owner or a house admin can change a bill');
       }
       if (bill.active === active) return { bill };
