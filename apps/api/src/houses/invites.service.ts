@@ -6,8 +6,8 @@ import {
   Injectable,
 } from '@nestjs/common';
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
-import { schema, type Db } from '@homi/db';
-import { ActivityService, type LogActivity, type Tx } from '../activity/activity.service';
+import { schema, type Db, type Tx } from '@homi/db';
+import { ActivityService, type LogActivity } from '../activity/activity.service';
 import { DB } from '../db.module';
 
 const INVITE_TTL_DAYS = 7;

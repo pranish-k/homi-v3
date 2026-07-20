@@ -106,7 +106,7 @@ The API itself checked out: balances, pairwise netting, dispute guards, and idem
 
 1. **Sprint 6 opener: the four structural review carryovers** - locked cannot-act guard in @homi/ledger, participant-scoped lockActiveMembers, shared requireAdmin, one connection type in @homi/db - so each money invariant keeps one implementation.
 2. **HOMI-21 + HOMI-14 travel together:** email delivery is what blocks real invites in a deployed environment, and the deploy target is what makes an email provider worth wiring; both blocked on accounts (GCP project, email provider). HOMI-18/19 wait behind that delivery channel.
-3. **Retro lesson: hazard-first tests, not just hazard-first design** - Sprint 5's three serious bugs all sat in designed-but-untested rare branches of the claim path.
+3. **Retro lesson: hazard-first tests, not just hazard-first design** - Sprint 5'so s three serious bugs all sat in designed-but-untested rare branches of the claim path.
 4. **Debt to carry consciously:** magic-link emails are only logged until HOMI-21; two rooms cannot merge when a roomed member claims a roomed placeholder (admin re-runs PUT /rooms; documented in acceptInvite).
 5. **HOMI-14 Cloud Run deploy.**
    CI deploy jobs are placeholders gated on `GCP_WORKLOAD_IDENTITY_PROVIDER`; needs GCP project + Workload Identity setup.
