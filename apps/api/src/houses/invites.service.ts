@@ -1,13 +1,9 @@
 import { createHash, randomBytes } from 'node:crypto';
-import {
-  BadRequestException,
-  ForbiddenException,
-  Inject,
-  Injectable,
-} from '@nestjs/common';
+import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { schema, type Db, type Tx } from '@homi/db';
 import { ActivityService, type LogActivity } from '../activity/activity.service';
+import { requireAdmin } from '../auth/house-role';
 import { DB } from '../db.module';
 
 const INVITE_TTL_DAYS = 7;
@@ -29,19 +25,7 @@ export class InvitesService {
    * disputable ledger, never a compiled bill.
    */
   async createInvite(houseId: string, actorId: string, placeholderId?: string) {
-    const [actor] = await this.db
-      .select({ role: schema.houseMembers.role })
-      .from(schema.houseMembers)
-      .where(
-        and(
-          eq(schema.houseMembers.houseId, houseId),
-          eq(schema.houseMembers.userId, actorId),
-          isNull(schema.houseMembers.leftAt),
-        ),
-      );
-    if (actor?.role !== 'admin') {
-      throw new ForbiddenException('Only house admins can create invites');
-    }
+    await requireAdmin(this.db, houseId, actorId, 'create invites');
     const token = randomBytes(32).toString('base64url');
     const expiresAt = new Date(Date.now() + INVITE_TTL_DAYS * 24 * 60 * 60 * 1000);
     // The unclaimed check and the insert share a transaction, with the

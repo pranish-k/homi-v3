@@ -1,7 +1,8 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { and, eq, isNull } from 'drizzle-orm';
 import { schema } from '@homi/db';
 import { ActivityService } from '../activity/activity.service';
+import { requireAdmin } from '../auth/house-role';
 
 @Injectable()
 export class MembersService {
@@ -16,19 +17,7 @@ export class MembersService {
    */
   async createPlaceholder(houseId: string, actorId: string, name: string) {
     return this.activity.transact(async (tx, log) => {
-      const [actor] = await tx
-        .select({ role: schema.houseMembers.role })
-        .from(schema.houseMembers)
-        .where(
-          and(
-            eq(schema.houseMembers.houseId, houseId),
-            eq(schema.houseMembers.userId, actorId),
-            isNull(schema.houseMembers.leftAt),
-          ),
-        );
-      if (actor?.role !== 'admin') {
-        throw new ForbiddenException('Only house admins can add placeholder roommates');
-      }
+      await requireAdmin(tx, houseId, actorId, 'add placeholder roommates');
 
       const [placeholder] = await tx
         .insert(schema.users)
