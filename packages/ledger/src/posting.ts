@@ -41,6 +41,40 @@ export async function lockActiveMembers(tx: DbConn, houseId: string): Promise<Ac
     .for('share');
 }
 
+/**
+ * Sprint 5 review carryover: the ONE implementation of "a placeholder
+ * never moves money" for the roles the posting core does not already
+ * cover (bill owner, payment recipient; the expense payer is guarded in
+ * resolveSplits). The row is SHARE-locked like every posting-core read,
+ * so the check serializes with a concurrent claim's FOR UPDATE (H11) -
+ * an unlocked copy could approve a placeholder mid-claim. Throws
+ * PostingProblem; API callers map it to a 400.
+ */
+export async function lockActingMember(
+  tx: DbConn,
+  houseId: string,
+  userId: string,
+  who: { subject: string; verb: string },
+): Promise<void> {
+  const [member] = await tx
+    .select({ isPlaceholder: schema.houseMembers.isPlaceholder })
+    .from(schema.houseMembers)
+    .where(
+      and(
+        eq(schema.houseMembers.houseId, houseId),
+        eq(schema.houseMembers.userId, userId),
+        isNull(schema.houseMembers.leftAt),
+      ),
+    )
+    .for('share');
+  if (!member) {
+    throw new PostingProblem(`${who.subject} must be an active house member`);
+  }
+  if (member.isPlaceholder) {
+    throw new PostingProblem(`A placeholder roommate cannot ${who.verb}`);
+  }
+}
+
 export interface ResolveSplitsInput {
   amountCents: number;
   paidBy: string;

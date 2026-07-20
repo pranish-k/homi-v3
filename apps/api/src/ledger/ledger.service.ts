@@ -11,6 +11,7 @@ import { schema, type Db, type DbConn } from '@homi/db';
 import { computeBalances, SplitError, type Balances, type SplitMode } from '@homi/domain';
 import {
   insertExpense,
+  lockActingMember,
   PostingProblem,
   resolveSplits,
   type ResolveSplitsInput,
@@ -250,23 +251,17 @@ export class LedgerService {
           throw new BadRequestException(`This house keeps its ledger in ${house.currency}`);
         }
 
-        const [counterpart] = await tx
-          .select({ isPlaceholder: schema.houseMembers.isPlaceholder })
-          .from(schema.houseMembers)
-          .where(
-            and(
-              eq(schema.houseMembers.houseId, houseId),
-              eq(schema.houseMembers.userId, input.toUser),
-              isNull(schema.houseMembers.leftAt),
-            ),
-          );
-        if (!counterpart) {
-          throw new BadRequestException('Recipient must be an active house member');
-        }
         // HOMI-9: money cannot move to someone who is not here yet; the
-        // placeholder's debts wait for the real person to claim them
-        if (counterpart.isPlaceholder) {
-          throw new BadRequestException('A placeholder roommate cannot receive payments');
+        // placeholder's debts wait for the real person to claim them.
+        // The shared guard SHARE-locks so a concurrent claim serializes.
+        try {
+          await lockActingMember(tx, houseId, input.toUser, {
+            subject: 'Recipient',
+            verb: 'receive payments',
+          });
+        } catch (err) {
+          if (err instanceof PostingProblem) throw new BadRequestException(err.message);
+          throw err;
         }
 
         const [payment] = await tx

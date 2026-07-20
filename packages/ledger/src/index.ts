@@ -1,5 +1,6 @@
 export {
   insertExpense,
+  lockActingMember,
   lockActiveMembers,
   PostingProblem,
   resolveSplits,
