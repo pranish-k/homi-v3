@@ -36,6 +36,23 @@ and one drizzle connection type exported from @homi/db (replacing LedgerConn/DbC
 - Not this sprint, consciously: HOMI-18/19 (nudges, digest) now have their delivery channel but wait for the client beta to exist; R2 stays untouched per R1 discipline.
 - Process gate stands: independent code review before tagging the sprint close.
 
+## Progress log
+
+**2026-07-19, carryovers done:** all four structural carryovers landed via the first PR-based merge (branch `sprint6-carryovers`, rebase-merged, CI green on main at `310f9da`):
+one DbConn/Tx in @homi/db, requireAdmin/activeMemberRole in auth/house-role.ts, lockActingMember in @homi/ledger (SHARE-locked bill-owner and payment-recipient guards), and participant-scoped lockActiveMembers (room_weighted keeps the full-house read).
+Suite green: 34 unit + 53 API + 10 worker.
+**Workflow decision:** trunk-based with short-lived branches and PRs from now on; rebase-merge for curated commit stacks, squash otherwise; merge on green CI, no human-approval requirement; prod stays tag-triggered.
+
+**2026-07-19, GCP foundation done (project `homi-testflight`, number 528839783533, region us-east4):**
+APIs enabled (run, sqladmin, secretmanager, artifactregistry, iamcredentials, sts); billing is linked.
+Artifact Registry docker repo `homi` in us-east4.
+Service accounts: `github-deployer@` (roles/run.admin, artifactregistry.writer, cloudsql.client, and serviceAccountUser on the runtime SA) and `homi-runtime@` (cloudsql.client, secretmanager.secretAccessor) for the Cloud Run services.
+Workload Identity Federation: pool `github`, provider `github-actions`, locked to `assertion.repository == 'pranish-k/homi-v3'`; github-deployer bound via workloadIdentityUser.
+Secret Manager: `resend-api-key` (Resend account created) and `better-auth-secret` (generated) each at version 1.
+
+**Open decision (blocks provisioning):** Cloud SQL tier (db-f1-micro ~$11/mo recommended vs db-g1-small ~$27/mo vs Neon free) and Redis (Upstash free tier recommended vs Memorystore+VPC connector ~$45/mo); Pranish was mid-clarification when the session ended.
+**Still to do:** provision Cloud SQL + Redis, real steps for the two stubbed CI deploy jobs (staging on main, prod on tags, migrations as a pre-traffic release step), Cloud Run services for API + worker, HOMI-21 Resend send hook, Sentry slice, then the HOMI-30 stretch (Expo scaffold).
+
 ## Sprint review notes (filled at close)
 
 ## Retrospective

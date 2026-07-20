@@ -1,6 +1,16 @@
 # HOMI v3 Progress
 
-**Last updated:** 2026-07-19 (Sprint 5 tagged and shipped)
+**Last updated:** 2026-07-19 (Sprint 6 in progress: carryovers merged, GCP foundation set up; awaiting DB/Redis tier decision)
+
+## In progress (Sprint 6, started 2026-07-19)
+
+- Direction decided: TestFlight v1 ships the expense loop only (epic E6, HOMI-30..35); everything else stays server-side and UI-hidden until later builds
+- Workflow: trunk-based with short-lived branches + PRs, merge on green CI (rebase-merge for curated stacks); prod deploys stay tag-triggered; first PR merged this way
+- Done: all four Sprint 5 structural carryovers (one DbConn/Tx in @homi/db, shared requireAdmin, SHARE-locked lockActingMember in @homi/ledger, participant-scoped member locks) - main at `310f9da`, CI green
+- Done: GCP foundation in project `homi-testflight` (us-east4): APIs, Artifact Registry `homi`, github-deployer + homi-runtime service accounts, Workload Identity Federation locked to pranish-k/homi-v3, secrets `resend-api-key` + `better-auth-secret`
+- Accounts ready: GCP (billing linked), Apple developer, Resend
+- NEXT / blocked on Pranish's cost decision: Cloud SQL tier (recommend db-f1-micro ~$11/mo) and Redis (recommend Upstash free tier vs Memorystore+VPC ~$45/mo); then CI deploy jobs, Cloud Run API+worker, HOMI-21 Resend hook, Sentry, Expo scaffold stretch
+- See docs/agile/SPRINT_06.md progress log for full detail
 
 ## Demo detour (2026-07-11)
 
