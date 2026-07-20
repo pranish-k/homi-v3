@@ -1,9 +1,6 @@
 import { and, eq, inArray, isNull } from 'drizzle-orm';
-import { schema, type Db } from '@homi/db';
+import { schema, type DbConn } from '@homi/db';
 import { computeSplits, divideRoomWeight, type SplitMode } from '@homi/domain';
-
-/** A Db or a transaction handle within one; both run the same query builders. */
-export type LedgerConn = Db | Parameters<Parameters<Db['transaction']>[0]>[0];
 
 /**
  * A posting that cannot proceed for a domain reason (missing member,
@@ -31,7 +28,7 @@ export interface ActiveMember {
  * either before the claim (and is swept into it) or after it (and
  * fails the active-member check).
  */
-export async function lockActiveMembers(tx: LedgerConn, houseId: string): Promise<ActiveMember[]> {
+export async function lockActiveMembers(tx: DbConn, houseId: string): Promise<ActiveMember[]> {
   return tx
     .select({
       userId: schema.houseMembers.userId,
@@ -61,7 +58,7 @@ export interface ResolveSplitsInput {
  * callers to map alongside PostingProblem.
  */
 export async function resolveSplits(
-  tx: LedgerConn,
+  tx: DbConn,
   houseId: string,
   input: ResolveSplitsInput,
   preloadedMembers?: ActiveMember[],
@@ -106,7 +103,7 @@ export async function resolveSplits(
  * odd basis point of an uneven division lands.
  */
 async function deriveRoomWeights(
-  tx: LedgerConn,
+  tx: DbConn,
   houseId: string,
   participants: string[],
   membersById: Map<string, ActiveMember>,
@@ -173,7 +170,7 @@ export interface ExpenseSpec {
  * ActivityService for the realtime hint).
  */
 export async function insertExpense(
-  tx: LedgerConn,
+  tx: DbConn,
   spec: ExpenseSpec,
   splits: Record<string, number>,
 ): Promise<typeof schema.expenses.$inferSelect> {

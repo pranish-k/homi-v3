@@ -5,9 +5,9 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { withIdempotency, type DbConn, type StoredResponse } from '../lib/idempotency';
+import { withIdempotency, type StoredResponse } from '../lib/idempotency';
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
-import { schema, type Db } from '@homi/db';
+import { schema, type Db, type DbConn } from '@homi/db';
 import { computeBalances, SplitError, type Balances, type SplitMode } from '@homi/domain';
 import {
   insertExpense,

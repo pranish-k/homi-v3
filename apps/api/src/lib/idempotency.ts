@@ -1,10 +1,7 @@
 import { ConflictException } from '@nestjs/common';
 import { and, eq } from 'drizzle-orm';
-import { isUniqueViolation, schema, type Db } from '@homi/db';
+import { isUniqueViolation, schema, type Db, type DbConn } from '@homi/db';
 import { hashRequest } from './request-hash';
-
-/** A Db or a transaction handle within one; both run the same query builders. */
-export type DbConn = Db | Parameters<Parameters<Db['transaction']>[0]>[0];
 
 export interface StoredResponse {
   status: number;

@@ -1,10 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { schema, type Db } from '@homi/db';
+import { schema, type Db, type Tx } from '@homi/db';
 import { DB } from '../db.module';
 import { RealtimeService } from '../realtime/realtime.service';
-
-/** A transaction handle as drizzle passes it to the callback. */
-export type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
 
 export interface ActivityInput {
   houseId: string;
