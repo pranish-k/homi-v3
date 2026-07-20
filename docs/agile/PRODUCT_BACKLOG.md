@@ -12,8 +12,8 @@ Priority order within each epic is top to bottom.
 |---|---|---|---|
 | HOMI-1 | As a developer, I have a monorepo with API, worker, db, and domain packages, local Docker env, lint, typecheck, and tests wired | 5 | Done (Sprint 1) |
 | HOMI-4 | As a developer, CI runs typecheck, lint, unit tests, integration tests against ephemeral Postgres, migration dry-run, and build on every push | 5 | Done (Sprint 1) |
-| HOMI-14 | As an operator, staging deploys to Cloud Run automatically from main; prod deploys from tagged releases | 8 | Backlog |
-| HOMI-15 | As an operator, Sentry and OpenTelemetry are wired into API and worker with p95 and queue-lag dashboards | 5 | Backlog |
+| HOMI-14 | As an operator, staging deploys to Cloud Run automatically from main; prod deploys from tagged releases | 8 | Sprint 6 |
+| HOMI-15 | As an operator, Sentry and OpenTelemetry are wired into API and worker with p95 and queue-lag dashboards (HOMI-15a, the Sentry slice, is committed to Sprint 6; dashboards stay here) | 5 | Backlog |
 
 ## Epic E2: Identity and houses
 
@@ -52,13 +52,28 @@ Priority order within each epic is top to bottom.
 
 | ID | Story | Points | Status |
 |---|---|---|---|
-| HOMI-21 | As a user, magic-link and notification emails are delivered via a transactional email provider | 3 | Backlog |
+| HOMI-21 | As a user, magic-link and notification emails are delivered via a transactional email provider | 3 | Sprint 6 |
 | HOMI-22 | As a developer, the legacy hand-rolled auth tables are dropped (contract phase of the HOMI-2 migration, H7) | 1 | Done (Sprint 5) |
 | HOMI-23 | As a couple sharing a room, our room's weight splits across both occupants | 2 | Done (Sprint 5) |
 | HOMI-24 | As an operator, auth and invite endpoints are rate limited (spec 5.5; magic-link send is an unauthenticated email loop) | 3 | Done (Sprint 3) |
 | HOMI-25 | As the system, getBalances reads expenses and payments in one consistent snapshot instead of two statements | 2 | Done (Sprint 3) |
 | HOMI-26 | As an operator, idempotency keys are pruned by a worker job after a retention window | 2 | Done (Sprint 4) |
 | HOMI-27 | As an operator, /healthz verifies DB connectivity so a wedged pool cannot report healthy | 1 | Done (Sprint 3) |
+
+## Epic E6: Mobile client - TestFlight v1 (decided 2026-07-19)
+
+TestFlight v1 ships the expense loop only: sign in, create or join a house, HOME, add an expense, settle up.
+Bills, rooms, placeholders, edits, and disputes stay server-side and hidden from the v1 UI; each becomes a later build's headline feature.
+The client is Expo React Native (TypeScript) against the deployed staging API from day one - no local-only prototypes (the demo/web lesson).
+
+| ID | Story | Points | Status |
+|---|---|---|---|
+| HOMI-30 | As a developer, an Expo app scaffold builds via EAS and installs from the TestFlight internal track | 5 | Backlog |
+| HOMI-31 | As a user, I sign in from my phone with a magic link and stay signed in (cookie session against the deployed API) | 5 | Backlog |
+| HOMI-32 | As a user, I create a house or join one by tapping an invite link | 3 | Backlog |
+| HOMI-33 | As a member, the HOME tab shows balances, members, and the feed head from the snapshot endpoint, refreshed by realtime hints | 5 | Backlog |
+| HOMI-34 | As a member, I add an expense (equal or exact split) in under 15 seconds (the R1 release gate) | 5 | Backlog |
+| HOMI-35 | As a member, I settle up: record a payment in one tap, with Venmo/Zelle/Cash App deep links | 3 | Backlog |
 
 ## Release gate (R1 to R2)
 
