@@ -80,7 +80,8 @@ gcloud secrets versions access latest --secret=database-url-staging
 
 ## One-time steps after the first deploy of each env
 
-Cloud Scheduler jobs driving the worker (needs the service to exist first):
+**Staging: DONE 2026-07-21** - `cloudscheduler` API enabled, `homi-runtime@` has `run.invoker` on `homi-worker-staging`, jobs `homi-worker-staging-tick` (every minute) and `homi-worker-staging-prune` (hourly at :07) created and verified (tick returns 200).
+**Prod: still to do after the first tag deploy** - repeat with the `homi-worker` URLs:
 
 ```sh
 gcloud services enable cloudscheduler.googleapis.com

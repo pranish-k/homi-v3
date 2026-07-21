@@ -61,6 +61,12 @@ Full reference (IPs, connection name, console links, maintenance-access recipe) 
 **2026-07-21, Redis provisioned:** Upstash free-tier database `usable-burro-43331` (TLS), URL stored as secret `redis-url`, runtime SA granted accessor; PING verified from local.
 One database shared by staging and prod for now - split into two before real prod traffic (caveat recorded in `docs/infra/GCP.md`).
 Provisioning is complete; HOMI-14 CI/Cloud Run is next.
+
+**2026-07-21, HOMI-14 staging is LIVE:** the deploy pipeline is real (reusable `deploy.yml` called from ci.yml: WIF auth, image build+push, migrations through the Cloud SQL Auth Proxy pre-traffic, api+worker Cloud Run deploys, `/readyz` smoke gate).
+`homi-api-staging` serves `{"status":"ok"}` on `/readyz` at https://homi-api-staging-528839783533.us-east4.run.app; `homi-worker-staging` runs in the new `WORKER_MODE=http` with Cloud Scheduler POSTing `/tick` per minute + `/prune` hourly via OIDC (verified 200) - chosen over the poll loop because always-allocated CPU costs ~$60/mo.
+Three deploy-shakeout fixes landed via PRs along the way: caller jobs must grant `id-token: write` to a reusable workflow; the runtime image must carry workspace-nested node_modules (better-auth was nested under apps/api, MODULE_NOT_FOUND at boot - a class local checkouts can never catch); `/healthz` is a GFE-reserved path on run.app domains so the smoke gate probes `/readyz`.
+First fully green end-to-end deploy run on main: 2026-07-21.
+Remaining for HOMI-14: prod first-tag deploy + its Scheduler jobs at sprint close.
 **Still to do:** provision Cloud SQL + Redis, real steps for the two stubbed CI deploy jobs (staging on main, prod on tags, migrations as a pre-traffic release step), Cloud Run services for API + worker, HOMI-21 Resend send hook, Sentry slice, then the HOMI-30 stretch (Expo scaffold).
 
 ## Sprint review notes (filled at close)
