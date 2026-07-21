@@ -5,7 +5,12 @@ import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { magicLink } from 'better-auth/plugins';
 import { createDb, schema } from '@homi/db';
 import { getSharedPool } from '../db.pool';
-import { getMailer, isMailerConfigured, requireMailerInProduction } from '../email/mailer';
+import {
+  getMailer,
+  isMailerConfigured,
+  requireMailerInProduction,
+  type Mailer,
+} from '../email/mailer';
 import { getRateLimiter } from '../ratelimit/rate-limiter';
 
 // HOMI-24: the magic-link endpoint is an unauthenticated email-send
@@ -61,6 +66,34 @@ const magicLinkRateLimit = createAuthMiddleware(async (ctx) => {
  */
 export const lastMagicLink = new Map<string, string>();
 
+/**
+ * Send the sign-in email, translating any delivery failure into a
+ * retryable 503. A raw throw here (Resend 429/422, or the send timeout)
+ * would surface to the caller as an opaque 500 indistinguishable from a
+ * real bug; the provider's error is logged server-side only, never
+ * echoed, since this path carries the sign-in link. Exported (with an
+ * injectable mailer) so the failure mapping is unit-testable.
+ */
+export async function deliverSignInLink(
+  email: string,
+  url: string,
+  mailer: Mailer = getMailer(),
+): Promise<void> {
+  try {
+    await mailer.send({
+      to: email,
+      subject: 'Sign in to HOMI',
+      text: `Tap to sign in to HOMI:\n\n${url}\n\nThe link expires shortly. If you did not request it, ignore this email.`,
+      html: `<p>Tap to sign in to HOMI:</p><p><a href="${url}">Sign in</a></p><p>The link expires shortly. If you did not request it, ignore this email.</p>`,
+    });
+  } catch (err) {
+    console.error('[auth] magic-link send failed', err);
+    throw new APIError('SERVICE_UNAVAILABLE', {
+      message: 'Could not send the sign-in email right now; please try again in a moment.',
+    });
+  }
+}
+
 function buildAuth() {
   const isProduction = process.env.NODE_ENV === 'production';
   const secret = process.env.BETTER_AUTH_SECRET;
@@ -103,12 +136,7 @@ function buildAuth() {
       magicLink({
         sendMagicLink: async ({ email, url }) => {
           if (isMailerConfigured()) {
-            await getMailer().send({
-              to: email,
-              subject: 'Sign in to HOMI',
-              text: `Tap to sign in to HOMI:\n\n${url}\n\nThe link expires shortly. If you did not request it, ignore this email.`,
-              html: `<p>Tap to sign in to HOMI:</p><p><a href="${url}">Sign in</a></p><p>The link expires shortly. If you did not request it, ignore this email.</p>`,
-            });
+            await deliverSignInLink(email, url);
             return;
           }
           // requireMailerInProduction() makes this branch unreachable in
