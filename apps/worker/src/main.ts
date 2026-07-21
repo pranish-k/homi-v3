@@ -10,6 +10,7 @@
  * unique key makes overlapping runs harmless, so BullMQ machinery buys
  * nothing yet. Revisit when jobs need retries with backoff (HOMI-18/19).
  */
+import { createServer } from 'node:http';
 import { createDb, createPool } from '@homi/db';
 import { Redis } from 'ioredis';
 import { postDueBills, type PublishHint } from './bills/post-due-bills';
@@ -85,6 +86,45 @@ async function main(): Promise<void> {
       console.error('[prune] failed', err);
     }
   };
+
+  if (process.env.WORKER_MODE === 'http') {
+    // Cloud Run (HOMI-14): a poll loop needs always-allocated CPU there,
+    // which costs more than the database. Instead Cloud Scheduler POSTs
+    // /tick and /prune on the same cadence the loop used, the instance
+    // scales to zero between runs, and platform IAM (OIDC run.invoker)
+    // keeps the endpoints private - no in-app auth. `running` already
+    // makes an overlapping tick a no-op, same as in loop mode.
+    const server = createServer((req, res) => {
+      const respond = (status: number, body: string) => {
+        res.writeHead(status, { 'content-type': 'text/plain' });
+        res.end(body);
+      };
+      if (req.method === 'GET' && req.url === '/healthz') return respond(200, 'ok');
+      if (req.method !== 'POST') return respond(405, 'method not allowed');
+      if (req.url === '/tick') {
+        void tick().then(() => respond(200, 'tick done'));
+        return;
+      }
+      if (req.url === '/prune') {
+        void prune().then(() => respond(200, 'prune done'));
+        return;
+      }
+      return respond(404, 'not found');
+    });
+    const port = Number(process.env.PORT ?? 8080);
+    server.listen(port, () => console.log(`[worker] http mode on :${port}`));
+
+    const shutdown = async () => {
+      stopping = true;
+      server.close();
+      await publisher.close();
+      await pool.end();
+      process.exit(0);
+    };
+    process.on('SIGINT', () => void shutdown());
+    process.on('SIGTERM', () => void shutdown());
+    return;
+  }
 
   const interval = setInterval(() => void tick(), POLL_INTERVAL_MS);
   const pruneInterval = setInterval(() => void prune(), PRUNE_INTERVAL_MS);

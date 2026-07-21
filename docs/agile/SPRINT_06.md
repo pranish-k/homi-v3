@@ -50,7 +50,17 @@ Service accounts: `github-deployer@` (roles/run.admin, artifactregistry.writer, 
 Workload Identity Federation: pool `github`, provider `github-actions`, locked to `assertion.repository == 'pranish-k/homi-v3'`; github-deployer bound via workloadIdentityUser.
 Secret Manager: `resend-api-key` (Resend account created) and `better-auth-secret` (generated) each at version 1.
 
-**Open decision (blocks provisioning):** Cloud SQL tier (db-f1-micro ~$11/mo recommended vs db-g1-small ~$27/mo vs Neon free) and Redis (Upstash free tier recommended vs Memorystore+VPC connector ~$45/mo); Pranish was mid-clarification when the session ended.
+**Decision (2026-07-19, Pranish):** Cloud SQL on db-f1-micro (~$11/mo) and Redis on the Upstash free tier (public TLS endpoint, no VPC connector).
+Provisioning is unblocked.
+
+**2026-07-20, Cloud SQL provisioned:** instance `homi-db` (Postgres 16, db-f1-micro, ENTERPRISE edition, us-east4-c, 10GB SSD auto-increase, IAM auth on, public IP with zero authorized networks - Cloud Run will connect via the Auth Proxy socket).
+Databases `homi_staging` + `homi_prod` with users `app_staging`/`app_prod` (schema privileges + default privileges granted).
+Connection URLs stored as secrets `database-url-staging`/`database-url-prod`; `homi-runtime@` granted accessor.
+Full reference (IPs, connection name, console links, maintenance-access recipe) in `docs/infra/GCP.md`.
+
+**2026-07-21, Redis provisioned:** Upstash free-tier database `usable-burro-43331` (TLS), URL stored as secret `redis-url`, runtime SA granted accessor; PING verified from local.
+One database shared by staging and prod for now - split into two before real prod traffic (caveat recorded in `docs/infra/GCP.md`).
+Provisioning is complete; HOMI-14 CI/Cloud Run is next.
 **Still to do:** provision Cloud SQL + Redis, real steps for the two stubbed CI deploy jobs (staging on main, prod on tags, migrations as a pre-traffic release step), Cloud Run services for API + worker, HOMI-21 Resend send hook, Sentry slice, then the HOMI-30 stretch (Expo scaffold).
 
 ## Sprint review notes (filled at close)

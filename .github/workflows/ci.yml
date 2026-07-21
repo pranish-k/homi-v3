@@ -77,9 +77,12 @@ jobs:
         run: npm run test:integration
 
   build:
+    # PR-only Dockerfile sanity check; on main/tags the deploy job
+    # builds and pushes the image itself
     name: Build artifacts + container image
     runs-on: ubuntu-latest
     needs: [quality, integration]
+    if: github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -93,19 +96,26 @@ jobs:
 
   # HOMI-14: deploy to Cloud Run.
   # main -> staging, tagged release (v*) -> prod, per spec 5.5.
-  # Activates once GCP Workload Identity Federation secrets are configured.
   deploy-staging:
-    name: Deploy staging (HOMI-14 placeholder)
-    runs-on: ubuntu-latest
-    needs: [build]
+    name: Deploy staging
+    needs: [quality, integration]
     if: github.ref == 'refs/heads/main' && vars.GCP_WORKLOAD_IDENTITY_PROVIDER != ''
-    steps:
-      - run: echo "Cloud Run deploy lands with HOMI-14 (gcloud run deploy homi-api-staging)"
+    uses: ./.github/workflows/deploy.yml
+    with:
+      environment: staging
+      api_service: homi-api-staging
+      worker_service: homi-worker-staging
+      database_url_secret: database-url-staging
+      public_origin: https://homi-api-staging-528839783533.us-east4.run.app
 
   deploy-prod:
-    name: Deploy prod (HOMI-14 placeholder)
-    runs-on: ubuntu-latest
-    needs: [build]
+    name: Deploy prod
+    needs: [quality, integration]
     if: github.ref_type == 'tag' && vars.GCP_WORKLOAD_IDENTITY_PROVIDER != ''
-    steps:
-      - run: echo "Cloud Run deploy lands with HOMI-14 (gcloud run deploy homi-api)"
+    uses: ./.github/workflows/deploy.yml
+    with:
+      environment: prod
+      api_service: homi-api
+      worker_service: homi-worker
+      database_url_secret: database-url-prod
+      public_origin: https://homi-api-528839783533.us-east4.run.app
