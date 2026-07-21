@@ -82,27 +82,25 @@ gcloud secrets versions access latest --secret=database-url-staging
 - Steps per deploy: WIF auth as `github-deployer@`, docker build+push to Artifact Registry, **migrations via Cloud SQL Auth Proxy before any traffic shifts** (`drizzle-kit migrate` with the env's `database-url-*` secret), then `gcloud run deploy` for API and worker, then a `/healthz` + `/readyz` smoke check.
 - Services: `homi-api-staging` / `homi-worker-staging` (main) and `homi-api` / `homi-worker` (tags).
   API is public; worker is IAM-gated (`--no-allow-unauthenticated`) and runs in `WORKER_MODE=http`, where Cloud Scheduler POSTs `/tick` (every minute) and `/prune` (hourly) instead of an in-process poll loop - a poll loop would need always-allocated CPU (~$60/mo).
-- Deterministic URLs: `https://<service>-528839783533.us-east4.run.app`.
+- Service URLs are the per-project-hash form Cloud Run now issues, e.g. `https://homi-api-ko63dsolia-uk.a.run.app` (the older `https://<service>-528839783533.us-east4.run.app` project-number form still resolves as an alias). Read the live URL with `gcloud run services describe <service> --format='value(status.url)'`; use that exact form for OIDC audiences (Scheduler jobs) so the audience matches.
 - GitHub repo variable required: `GCP_WORKLOAD_IDENTITY_PROVIDER` = `projects/528839783533/locations/global/workloadIdentityPools/github/providers/github-actions` (deploy jobs skip silently while unset).
 - `github-deployer@` needs `secretmanager.secretAccessor` on `database-url-staging` and `database-url-prod` (for the migration step).
 
 ## One-time steps after the first deploy of each env
 
 **Staging: DONE 2026-07-21** - `cloudscheduler` API enabled, `homi-runtime@` has `run.invoker` on `homi-worker-staging`, jobs `homi-worker-staging-tick` (every minute) and `homi-worker-staging-prune` (hourly at :07) created and verified (tick returns 200).
-**Prod: still to do after the first tag deploy** - repeat with the `homi-worker` URLs:
+**Prod: DONE 2026-07-21** (first tag deploy `v0.6.0-sprint6`) - `homi-runtime@` granted `run.invoker` on `homi-worker`, jobs `homi-worker-tick` (every minute) and `homi-worker-prune` (hourly at :07) created and verified (both return 2xx once the IAM grant propagated - allow a minute or two before the first forced run succeeds).
+`cloudscheduler` is enabled project-wide, so a new env only needs the grant + two jobs. The recipe (substitute the env's worker service name and live `status.url`):
 
 ```sh
-gcloud services enable cloudscheduler.googleapis.com
-gcloud run services add-iam-policy-binding homi-worker-staging --region=us-east4 \
+gcloud run services add-iam-policy-binding <worker-service> --region=us-east4 \
   --member="serviceAccount:homi-runtime@homi-testflight.iam.gserviceaccount.com" --role=roles/run.invoker
-gcloud scheduler jobs create http homi-worker-staging-tick --location=us-east4 \
+gcloud scheduler jobs create http <worker-service>-tick --location=us-east4 \
   --schedule="* * * * *" --http-method=POST \
-  --uri="https://homi-worker-staging-528839783533.us-east4.run.app/tick" \
+  --uri="https://<worker-service>-ko63dsolia-uk.a.run.app/tick" \
   --oidc-service-account-email=homi-runtime@homi-testflight.iam.gserviceaccount.com
-gcloud scheduler jobs create http homi-worker-staging-prune --location=us-east4 \
+gcloud scheduler jobs create http <worker-service>-prune --location=us-east4 \
   --schedule="7 * * * *" --http-method=POST \
-  --uri="https://homi-worker-staging-528839783533.us-east4.run.app/prune" \
+  --uri="https://<worker-service>-ko63dsolia-uk.a.run.app/prune" \
   --oidc-service-account-email=homi-runtime@homi-testflight.iam.gserviceaccount.com
 ```
-
-(Repeat with `homi-worker` URLs for prod after the first tag deploy.)
