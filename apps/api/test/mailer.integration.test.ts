@@ -3,8 +3,10 @@ import {
   createMailer,
   isMailerConfigured,
   requireMailerInProduction,
+  type Mailer,
   type SendEmailInput,
 } from '../src/email/mailer';
+import { deliverSignInLink } from '../src/auth/auth.instance';
 
 /** HOMI-21: the Resend client and the presence-based configuration rules. */
 
@@ -97,5 +99,57 @@ describe('configuration rules', () => {
     process.env.NODE_ENV = 'production';
     process.env.RESEND_API_KEY = 'rk_test';
     expect(() => requireMailerInProduction()).not.toThrow();
+  });
+});
+
+describe('deliverSignInLink (magic-link send resilience)', () => {
+  const url = 'https://homi.example/verify?token=secret-token';
+
+  function recordingMailer(behavior: 'ok' | Error): { mailer: Mailer; sent: SendEmailInput[] } {
+    const sent: SendEmailInput[] = [];
+    const mailer: Mailer = {
+      async send(inputToSend) {
+        sent.push(inputToSend);
+        if (behavior !== 'ok') throw behavior;
+      },
+    };
+    return { mailer, sent };
+  }
+
+  it('sends the link on success', async () => {
+    const { mailer, sent } = recordingMailer('ok');
+    await expect(deliverSignInLink('roomie@example.com', url, mailer)).resolves.toBeUndefined();
+    expect(sent).toHaveLength(1);
+    expect(sent[0].to).toBe('roomie@example.com');
+    expect(sent[0].text).toContain(url);
+  });
+
+  it('maps a provider failure (429/422) to a retryable 503, not a raw 500', async () => {
+    const { mailer } = recordingMailer(new Error('email send failed: Resend responded 429'));
+    await expect(deliverSignInLink('roomie@example.com', url, mailer)).rejects.toMatchObject({
+      statusCode: 503,
+    });
+  });
+
+  it('maps a send timeout to 503 as well', async () => {
+    const timeout = new DOMException('The operation timed out.', 'TimeoutError');
+    const { mailer } = recordingMailer(timeout);
+    await expect(deliverSignInLink('roomie@example.com', url, mailer)).rejects.toMatchObject({
+      statusCode: 503,
+    });
+  });
+
+  it('never leaks the sign-in url or the provider error into the client message', async () => {
+    const { mailer } = recordingMailer(new Error(`Resend rejected recipient for ${url}`));
+    let caught: { body?: { message?: string } } | undefined;
+    try {
+      await deliverSignInLink('roomie@example.com', url, mailer);
+    } catch (err) {
+      caught = err as { body?: { message?: string } };
+    }
+    const message = caught?.body?.message ?? '';
+    expect(message).not.toContain(url);
+    expect(message).not.toContain('Resend');
+    expect(message.length).toBeGreaterThan(0);
   });
 });
