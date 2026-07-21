@@ -5,6 +5,7 @@ import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { magicLink } from 'better-auth/plugins';
 import { createDb, schema } from '@homi/db';
 import { getSharedPool } from '../db.pool';
+import { getMailer, isMailerConfigured, requireMailerInProduction } from '../email/mailer';
 import { getRateLimiter } from '../ratelimit/rate-limiter';
 
 // HOMI-24: the magic-link endpoint is an unauthenticated email-send
@@ -53,9 +54,10 @@ const magicLinkRateLimit = createAuthMiddleware(async (ctx) => {
  * (spec 5.2): magic links now, Apple/Google once OAuth credentials are
  * configured via env.
  *
- * Email delivery is HOMI-21; until a transactional email provider is
- * wired, magic-link URLs are logged server-side and (outside
- * production) exposed via lastMagicLink for tests and local sign-in.
+ * Email delivery (HOMI-21): with RESEND_API_KEY set, magic links send
+ * as real mail; without it, dev logs the URL and exposes it via
+ * lastMagicLink for tests and local sign-in, while production refuses
+ * to boot (delivery is the only way anyone can sign in).
  */
 export const lastMagicLink = new Map<string, string>();
 
@@ -66,6 +68,7 @@ function buildAuth() {
     // a fallback secret in prod means anyone with the repo can forge sessions
     throw new Error('BETTER_AUTH_SECRET must be set in production');
   }
+  requireMailerInProduction();
   const db = createDb(getSharedPool());
 
   const socialProviders: Record<string, { clientId: string; clientSecret: string }> = {};
@@ -99,9 +102,18 @@ function buildAuth() {
     plugins: [
       magicLink({
         sendMagicLink: async ({ email, url }) => {
+          if (isMailerConfigured()) {
+            await getMailer().send({
+              to: email,
+              subject: 'Sign in to HOMI',
+              text: `Tap to sign in to HOMI:\n\n${url}\n\nThe link expires shortly. If you did not request it, ignore this email.`,
+              html: `<p>Tap to sign in to HOMI:</p><p><a href="${url}">Sign in</a></p><p>The link expires shortly. If you did not request it, ignore this email.</p>`,
+            });
+            return;
+          }
+          // requireMailerInProduction() makes this branch unreachable in
+          // prod; never log sign-in credentials there regardless
           if (isProduction) {
-            // never log sign-in credentials; fail loudly until email
-            // delivery exists (HOMI-21)
             throw new Error('Email delivery is not configured (HOMI-21)');
           }
           // bounded: a long-running dev process must not grow one entry
