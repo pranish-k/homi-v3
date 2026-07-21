@@ -12,9 +12,11 @@
  */
 import { createServer } from 'node:http';
 import { createDb, createPool } from '@homi/db';
+import * as Sentry from '@sentry/node';
 import { Redis } from 'ioredis';
 import { postDueBills, type PublishHint } from './bills/post-due-bills';
 import { createRequestHandler } from './http-server';
+import { initSentry } from './observability/sentry';
 import { DEFAULT_RETENTION_DAYS, pruneIdempotencyKeys } from './prune/prune-idempotency-keys';
 
 const POLL_INTERVAL_MS = 60_000;
@@ -45,6 +47,9 @@ function buildPublisher(): { publish: PublishHint; close: () => Promise<void> } 
 }
 
 async function main(): Promise<void> {
+  // first, so Sentry's global handlers catch startup and process-level
+  // crashes too (HOMI-15a); a no-op without SENTRY_DSN
+  initSentry();
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error('DATABASE_URL is not set');
   const pool = createPool(url);
@@ -71,6 +76,7 @@ async function main(): Promise<void> {
     } catch (err) {
       // one bad tick must not kill the worker; the next tick retries
       console.error('[bills] posting run failed', err);
+      Sentry.captureException(err, { tags: { job: 'bills' } });
       return false;
     } finally {
       running = false;
@@ -90,6 +96,7 @@ async function main(): Promise<void> {
       return true;
     } catch (err) {
       console.error('[prune] failed', err);
+      Sentry.captureException(err, { tags: { job: 'prune' } });
       return false;
     }
   };
@@ -103,6 +110,9 @@ async function main(): Promise<void> {
     await stop();
     await publisher.close();
     await pool.end();
+    // flush any queued events before the process goes away (no-op when
+    // Sentry was never initialized); bounded so shutdown cannot hang
+    await Sentry.close(2000);
     process.exit(0);
   };
   const onSignals = (handler: () => void) => {
