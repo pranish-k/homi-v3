@@ -105,10 +105,12 @@ jobs:
             --no-allow-unauthenticated \
             --memory=512Mi --cpu=1 --min-instances=0 --max-instances=1
 
-      - name: Smoke check /healthz and /readyz
+      - name: Smoke check /readyz
+        # /healthz is a Google Frontend reserved path on run.app domains
+        # (edge 404s it before the container); it still serves Cloud
+        # Run's internal probes. /readyz exercises DB + Redis, which is
+        # the signal a deploy gate needs anyway.
         run: |
-          for path in healthz readyz; do
-            code=$(curl -s -o /dev/null -w '%{http_code}' "${{ inputs.public_origin }}/$path")
-            echo "/$path -> $code"
-            [ "$code" = "200" ] || exit 1
-          done
+          code=$(curl -s -o /dev/null -w '%{http_code}' "${{ inputs.public_origin }}/readyz")
+          echo "/readyz -> $code"
+          [ "$code" = "200" ] || exit 1
