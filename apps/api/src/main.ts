@@ -1,10 +1,14 @@
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
+import { initSentry } from './observability/sentry';
 import { RealtimeGateway } from './realtime/realtime.gateway';
 import { setupApp } from './setup';
 
 async function bootstrap(): Promise<void> {
+  // before anything else so Sentry's global handlers catch startup and
+  // process-level crashes too (HOMI-15a); a no-op without SENTRY_DSN
+  initSentry();
   const app = await NestFactory.create(AppModule, { bodyParser: false });
   setupApp(app);
   app.enableShutdownHooks();

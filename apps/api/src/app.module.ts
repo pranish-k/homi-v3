@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { APP_FILTER } from '@nestjs/core';
+import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
 import { ActivityService } from './activity/activity.service';
 import { DbModule } from './db.module';
 import { MembershipService } from './auth/membership.service';
@@ -13,6 +13,7 @@ import { SnapshotService } from './houses/snapshot.service';
 import { BillsService } from './ledger/bills.service';
 import { ExpensesController, LedgerController, PaymentsController } from './ledger/ledger.controller';
 import { LedgerService } from './ledger/ledger.service';
+import { SentryInterceptor } from './observability/sentry.interceptor';
 import { RateLimitFilter } from './ratelimit/rate-limit.filter';
 import { RealtimeGateway } from './realtime/realtime.gateway';
 import { RealtimeService } from './realtime/realtime.service';
@@ -39,6 +40,7 @@ import { RealtimeService } from './realtime/realtime.service';
     MembershipService,
     RealtimeService,
     RealtimeGateway,
+    { provide: APP_INTERCEPTOR, useClass: SentryInterceptor },
     { provide: APP_FILTER, useClass: RateLimitFilter },
   ],
 })

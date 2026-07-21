@@ -13,6 +13,7 @@
     "@homi/db": "*",
     "@homi/domain": "*",
     "@homi/ledger": "*",
+    "@sentry/node": "^10.67.0",
     "dotenv": "^16.4.7",
     "ioredis": "^5.11.1"
   },
