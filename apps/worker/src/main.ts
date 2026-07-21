@@ -14,6 +14,7 @@ import { createServer } from 'node:http';
 import { createDb, createPool } from '@homi/db';
 import { Redis } from 'ioredis';
 import { postDueBills, type PublishHint } from './bills/post-due-bills';
+import { createRequestHandler } from './http-server';
 import { DEFAULT_RETENTION_DAYS, pruneIdempotencyKeys } from './prune/prune-idempotency-keys';
 
 const POLL_INTERVAL_MS = 60_000;
@@ -54,8 +55,10 @@ async function main(): Promise<void> {
   let stopping = false;
   let running = false;
 
-  const tick = async () => {
-    if (running || stopping) return; // a slow run must not stack a second one
+  // returns false only when a run actually executed and threw; a skipped
+  // overlap and a clean run both return true (nothing for a caller to alert on)
+  const tick = async (): Promise<boolean> => {
+    if (running || stopping) return true; // a slow run must not stack a second one
     running = true;
     try {
       const result = await postDueBills(db, new Date(), publisher.publish);
@@ -64,9 +67,11 @@ async function main(): Promise<void> {
           `[bills] posted=${result.posted.length} alreadyPosted=${result.alreadyPosted.length} paused=${result.paused.length}`,
         );
       }
+      return true;
     } catch (err) {
       // one bad tick must not kill the worker; the next tick retries
       console.error('[bills] posting run failed', err);
+      return false;
     } finally {
       running = false;
     }
@@ -77,52 +82,45 @@ async function main(): Promise<void> {
   const retentionDays = process.env.IDEMPOTENCY_RETENTION_DAYS
     ? Number(process.env.IDEMPOTENCY_RETENTION_DAYS)
     : DEFAULT_RETENTION_DAYS;
-  const prune = async () => {
-    if (stopping) return;
+  const prune = async (): Promise<boolean> => {
+    if (stopping) return true;
     try {
       const { deleted } = await pruneIdempotencyKeys(db, retentionDays);
       if (deleted > 0) console.log(`[prune] removed ${deleted} idempotency keys`);
+      return true;
     } catch (err) {
       console.error('[prune] failed', err);
+      return false;
     }
   };
 
+  // One teardown for both modes: flip the guard, run the mode-specific
+  // stop step, then release shared resources and exit. Registering it
+  // once here keeps the two modes from drifting apart (e.g. a future
+  // Sentry flush must not be added to only one of them).
+  const gracefulShutdown = (stop: () => Promise<void>) => async () => {
+    stopping = true;
+    await stop();
+    await publisher.close();
+    await pool.end();
+    process.exit(0);
+  };
+  const onSignals = (handler: () => void) => {
+    process.on('SIGINT', handler);
+    process.on('SIGTERM', handler);
+  };
+
   if (process.env.WORKER_MODE === 'http') {
-    // Cloud Run (HOMI-14): a poll loop needs always-allocated CPU there,
-    // which costs more than the database. Instead Cloud Scheduler POSTs
-    // /tick and /prune on the same cadence the loop used, the instance
-    // scales to zero between runs, and platform IAM (OIDC run.invoker)
-    // keeps the endpoints private - no in-app auth. `running` already
-    // makes an overlapping tick a no-op, same as in loop mode.
-    const server = createServer((req, res) => {
-      const respond = (status: number, body: string) => {
-        res.writeHead(status, { 'content-type': 'text/plain' });
-        res.end(body);
-      };
-      if (req.method === 'GET' && req.url === '/healthz') return respond(200, 'ok');
-      if (req.method !== 'POST') return respond(405, 'method not allowed');
-      if (req.url === '/tick') {
-        void tick().then(() => respond(200, 'tick done'));
-        return;
-      }
-      if (req.url === '/prune') {
-        void prune().then(() => respond(200, 'prune done'));
-        return;
-      }
-      return respond(404, 'not found');
-    });
+    const server = createServer(createRequestHandler({ tick, prune }));
     const port = Number(process.env.PORT ?? 8080);
     server.listen(port, () => console.log(`[worker] http mode on :${port}`));
 
-    const shutdown = async () => {
-      stopping = true;
-      server.close();
-      await publisher.close();
-      await pool.end();
-      process.exit(0);
-    };
-    process.on('SIGINT', () => void shutdown());
-    process.on('SIGTERM', () => void shutdown());
+    // await server.close so an in-flight /tick drains (finishes its run
+    // and flushes its response) before the pool it is querying closes
+    const shutdown = gracefulShutdown(
+      () => new Promise<void>((resolve) => server.close(() => resolve())),
+    );
+    onSignals(() => void shutdown());
     return;
   }
 
@@ -131,16 +129,11 @@ async function main(): Promise<void> {
   void tick();
   void prune();
 
-  const shutdown = async () => {
-    stopping = true;
+  const shutdown = gracefulShutdown(async () => {
     clearInterval(interval);
     clearInterval(pruneInterval);
-    await publisher.close();
-    await pool.end();
-    process.exit(0);
-  };
-  process.on('SIGINT', () => void shutdown());
-  process.on('SIGTERM', () => void shutdown());
+  });
+  onSignals(() => void shutdown());
 }
 
 void main();
