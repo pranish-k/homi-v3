@@ -1,0 +1,114 @@
+# Reusable Cloud Run deploy (HOMI-14). Called by ci.yml twice:
+# main -> staging, v* tag -> prod. Same steps, different names/secrets.
+#
+# Order is migrations THEN traffic (expand-migrate-contract, spec 5.5):
+# the new revision only starts receiving requests after the schema it
+# was built against is live in Cloud SQL.
+name: Deploy to Cloud Run
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: staging or prod (log labels only)
+        required: true
+        type: string
+      api_service:
+        required: true
+        type: string
+      worker_service:
+        required: true
+        type: string
+      database_url_secret:
+        description: Secret Manager name holding this env's DATABASE_URL
+        required: true
+        type: string
+      public_origin:
+        description: Public URL of the API service (BETTER_AUTH_URL + INVITE_LINK_ORIGIN)
+        required: true
+        type: string
+
+env:
+  PROJECT: homi-testflight
+  REGION: us-east4
+  SQL_CONNECTION: homi-testflight:us-east4:homi-db
+  RUNTIME_SA: homi-runtime@homi-testflight.iam.gserviceaccount.com
+  IMAGE: us-east4-docker.pkg.dev/homi-testflight/homi/backend:${{ github.sha }}
+
+jobs:
+  deploy:
+    name: Migrate + deploy ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: github-deployer@homi-testflight.iam.gserviceaccount.com
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Build and push image
+        run: |
+          gcloud auth configure-docker us-east4-docker.pkg.dev --quiet
+          docker build -t "$IMAGE" .
+          docker push "$IMAGE"
+
+      - name: Run migrations against Cloud SQL (pre-traffic)
+        run: |
+          # drizzle-kit needs node_modules; the app URL's unix-socket form
+          # (?host=/cloudsql/...) works verbatim once the proxy listens there
+          npm ci --no-fund --no-audit
+          curl -sfL -o cloud-sql-proxy \
+            https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.14.2/cloud-sql-proxy.linux.amd64
+          chmod +x cloud-sql-proxy
+          sudo mkdir -p /cloudsql && sudo chown "$USER" /cloudsql
+          ./cloud-sql-proxy --unix-socket /cloudsql "$SQL_CONNECTION" &
+          PROXY_PID=$!
+          for i in $(seq 1 20); do
+            [ -S "/cloudsql/$SQL_CONNECTION/.s.PGSQL.5432" ] && break
+            sleep 0.5
+          done
+          DATABASE_URL="$(gcloud secrets versions access latest --secret='${{ inputs.database_url_secret }}')" \
+            npm run db:migrate
+          kill "$PROXY_PID"
+
+      - name: Deploy API
+        run: |
+          gcloud run deploy '${{ inputs.api_service }}' \
+            --project="$PROJECT" --region="$REGION" \
+            --image="$IMAGE" \
+            --service-account="$RUNTIME_SA" \
+            --add-cloudsql-instances="$SQL_CONNECTION" \
+            --set-secrets="DATABASE_URL=${{ inputs.database_url_secret }}:latest,REDIS_URL=redis-url:latest,BETTER_AUTH_SECRET=better-auth-secret:latest,RESEND_API_KEY=resend-api-key:latest" \
+            --set-env-vars="NODE_ENV=production,BETTER_AUTH_URL=${{ inputs.public_origin }},INVITE_LINK_ORIGIN=${{ inputs.public_origin }}" \
+            --allow-unauthenticated \
+            --memory=512Mi --cpu=1 --min-instances=0 --max-instances=3
+
+      - name: Deploy worker (Scheduler-driven, IAM-gated)
+        run: |
+          gcloud run deploy '${{ inputs.worker_service }}' \
+            --project="$PROJECT" --region="$REGION" \
+            --image="$IMAGE" \
+            --command=node --args=apps/worker/dist/main.js \
+            --service-account="$RUNTIME_SA" \
+            --add-cloudsql-instances="$SQL_CONNECTION" \
+            --set-secrets="DATABASE_URL=${{ inputs.database_url_secret }}:latest,REDIS_URL=redis-url:latest" \
+            --set-env-vars="NODE_ENV=production,WORKER_MODE=http" \
+            --no-allow-unauthenticated \
+            --memory=512Mi --cpu=1 --min-instances=0 --max-instances=1
+
+      - name: Smoke check /healthz and /readyz
+        run: |
+          for path in healthz readyz; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "${{ inputs.public_origin }}/$path")
+            echo "/$path -> $code"
+            [ "$code" = "200" ] || exit 1
+          done
