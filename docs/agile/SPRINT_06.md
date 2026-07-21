@@ -71,14 +71,22 @@ Remaining for HOMI-14: prod first-tag deploy + its Scheduler jobs at sprint clos
 **2026-07-21, HOMI-21 shipped:** magic links send as real mail via Resend - a fetch wrapper (`email/mailer.ts`, no SDK dep), configuration by key presence like redis.ts, prod refuses to boot without RESEND_API_KEY, dev keeps the logger seam (suite guard drops an inherited key so tests can never send).
 Sending domain `contact.homiapp.app` verified in Resend (the account is pranish11khanal11@gmail.com; its sandbox sender could only reach that inbox); `EMAIL_FROM=HOMI <sign-in@contact.homiapp.app>` set on both envs in deploy.yml.
 Verified end to end on staging: POST /sign-in/magic-link -> Resend -> real Gmail inbox.
-DMARC record on contact.homiapp.app still to add before outside testers (deliverability).
-**Still to do:** provision Cloud SQL + Redis, real steps for the two stubbed CI deploy jobs (staging on main, prod on tags, migrations as a pre-traffic release step), Cloud Run services for API + worker, HOMI-21 Resend send hook, Sentry slice, then the HOMI-30 stretch (Expo scaffold).
+DMARC record on contact.homiapp.app deferred to before outside testers - mail currently lands in the inbox, so it does not block own-house testing.
+
+**2026-07-21, HOMI-15a shipped:** Sentry error capture + release tagging in API and worker, configured by presence like Redis/Resend - off without SENTRY_DSN, and a missing reporter never fails boot.
+API: a `SentryInterceptor` reports only 5xx and non-HTTP throwables from Nest handlers (client 4xx stay off the dashboard); init runs first in bootstrap so global crash handlers are installed early.
+Worker: the `tick`/`prune` catch blocks report their failure tagged by job, and the shared `gracefulShutdown` flushes Sentry before exit.
+Both runtimes share one project, told apart by a `service` tag; error capture only this sprint (tracing off), dashboards are the later HOMI-15.
+Live on staging: secret `sentry-dsn` (runtime SA accessor), `SENTRY_RELEASE` = commit SHA, `SENTRY_ENVIRONMENT` = staging/prod; delivery verified end to end against the real DSN and confirmed mounted on the live revisions.
+
+**Remaining to close the sprint:** prod first-tag deploy (`v0.6.0-sprint6`) + its Scheduler jobs, then the optional HOMI-30 Expo scaffold stretch.
 
 ## Sprint review notes (filled at close)
 
 **2026-07-21, pre-tag code review (medium-effort agent review over `v0.5.0-sprint5..HEAD`):**
 The four Sprint 5 carryover refactors traced clean at every call site (posting lock discipline, `requireAdmin`, unified `DbConn`/`Tx`) - no regressions.
-Eight findings, all in the new HOMI-14 / HOMI-21 surfaces; being fixed in four area-grouped PRs before the sprint tag.
+Eight findings, all in the new HOMI-14 / HOMI-21 surfaces; seven fixed and merged in four area-grouped PRs before the sprint tag, one (Dockerfile #5) deferred as debt.
+All fix PRs merged green; the merged `main` staging deploy passed its `/readyz` gate, and the full suite is green (34 unit + 67 API + 17 worker).
 
 Correctness:
 1. Worker `/tick` and `/prune` always return HTTP 200 even on failure or skip, because `tick()`/`prune()` swallow their errors internally - Cloud Scheduler never sees a failed run, defeating the module's own "alert on job that did not run" rule (blocks HOMI-15a alerting). (`apps/worker/src/main.ts`)
