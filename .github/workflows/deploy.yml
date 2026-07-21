@@ -102,8 +102,8 @@ jobs:
             --image="$IMAGE" \
             --service-account="$RUNTIME_SA" \
             --add-cloudsql-instances="$SQL_CONNECTION" \
-            --set-secrets="DATABASE_URL=${{ inputs.database_url_secret }}:latest,REDIS_URL=${{ inputs.redis_url_secret }}:latest,BETTER_AUTH_SECRET=better-auth-secret:latest,RESEND_API_KEY=resend-api-key:latest" \
-            --set-env-vars="NODE_ENV=production,BETTER_AUTH_URL=${{ inputs.public_origin }},INVITE_LINK_ORIGIN=${{ inputs.public_origin }},EMAIL_FROM=${{ inputs.email_from }}" \
+            --set-secrets="DATABASE_URL=${{ inputs.database_url_secret }}:latest,REDIS_URL=${{ inputs.redis_url_secret }}:latest,BETTER_AUTH_SECRET=better-auth-secret:latest,RESEND_API_KEY=resend-api-key:latest,SENTRY_DSN=sentry-dsn:latest" \
+            --set-env-vars="NODE_ENV=production,BETTER_AUTH_URL=${{ inputs.public_origin }},INVITE_LINK_ORIGIN=${{ inputs.public_origin }},EMAIL_FROM=${{ inputs.email_from }},SENTRY_RELEASE=${{ github.sha }},SENTRY_ENVIRONMENT=${{ inputs.environment }}" \
             --allow-unauthenticated \
             --memory=512Mi --cpu=1 --min-instances=0 --max-instances=3
 
@@ -115,8 +115,8 @@ jobs:
             --command=node --args=apps/worker/dist/main.js \
             --service-account="$RUNTIME_SA" \
             --add-cloudsql-instances="$SQL_CONNECTION" \
-            --set-secrets="DATABASE_URL=${{ inputs.database_url_secret }}:latest,REDIS_URL=${{ inputs.redis_url_secret }}:latest" \
-            --set-env-vars="NODE_ENV=production,WORKER_MODE=http" \
+            --set-secrets="DATABASE_URL=${{ inputs.database_url_secret }}:latest,REDIS_URL=${{ inputs.redis_url_secret }}:latest,SENTRY_DSN=sentry-dsn:latest" \
+            --set-env-vars="NODE_ENV=production,WORKER_MODE=http,SENTRY_RELEASE=${{ github.sha }},SENTRY_ENVIRONMENT=${{ inputs.environment }}" \
             --no-allow-unauthenticated \
             --memory=512Mi --cpu=1 --min-instances=0 --max-instances=1
 

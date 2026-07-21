@@ -36,6 +36,8 @@ Console: https://console.cloud.google.com/security/secret-manager?project=homi-t
 | `database-url-prod` | Same for `app_prod` -> `homi_prod` |
 | `better-auth-secret` | Generated Better Auth secret |
 | `resend-api-key` | Resend API key (send-only scope; domain admin happens in the Resend dashboard, account pranish11khanal11@gmail.com) |
+| `redis-url` | Upstash `rediss://` URL (shared staging+prod for now, see Redis section) |
+| `sentry-dsn` | Sentry ingest DSN (HOMI-15a; one project shared by API + worker, told apart by the `service` tag). Low-sensitivity write-only key, kept here for rotation and to stay out of the repo. |
 
 `homi-runtime@` has `secretmanager.secretAccessor` on all of them.
 
