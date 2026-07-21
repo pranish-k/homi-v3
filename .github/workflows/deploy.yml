@@ -27,6 +27,21 @@ on:
         description: Public URL of the API service (BETTER_AUTH_URL + INVITE_LINK_ORIGIN)
         required: true
         type: string
+      redis_url_secret:
+        description: >-
+          Secret Manager name holding this env's REDIS_URL. Staging and prod
+          share one Upstash db today (default); give prod its own secret here
+          when the db is split (see docs/infra/GCP.md) - a one-line caller change.
+        required: false
+        type: string
+        default: redis-url
+      email_from:
+        description: >-
+          Sender for outbound mail (EMAIL_FROM). Per-env so a later prod
+          sending domain does not require editing this workflow.
+        required: false
+        type: string
+        default: HOMI <sign-in@contact.homiapp.app>
 
 env:
   PROJECT: homi-testflight
@@ -87,8 +102,8 @@ jobs:
             --image="$IMAGE" \
             --service-account="$RUNTIME_SA" \
             --add-cloudsql-instances="$SQL_CONNECTION" \
-            --set-secrets="DATABASE_URL=${{ inputs.database_url_secret }}:latest,REDIS_URL=redis-url:latest,BETTER_AUTH_SECRET=better-auth-secret:latest,RESEND_API_KEY=resend-api-key:latest" \
-            --set-env-vars="NODE_ENV=production,BETTER_AUTH_URL=${{ inputs.public_origin }},INVITE_LINK_ORIGIN=${{ inputs.public_origin }},EMAIL_FROM=HOMI <sign-in@contact.homiapp.app>" \
+            --set-secrets="DATABASE_URL=${{ inputs.database_url_secret }}:latest,REDIS_URL=${{ inputs.redis_url_secret }}:latest,BETTER_AUTH_SECRET=better-auth-secret:latest,RESEND_API_KEY=resend-api-key:latest" \
+            --set-env-vars="NODE_ENV=production,BETTER_AUTH_URL=${{ inputs.public_origin }},INVITE_LINK_ORIGIN=${{ inputs.public_origin }},EMAIL_FROM=${{ inputs.email_from }}" \
             --allow-unauthenticated \
             --memory=512Mi --cpu=1 --min-instances=0 --max-instances=3
 
@@ -100,7 +115,7 @@ jobs:
             --command=node --args=apps/worker/dist/main.js \
             --service-account="$RUNTIME_SA" \
             --add-cloudsql-instances="$SQL_CONNECTION" \
-            --set-secrets="DATABASE_URL=${{ inputs.database_url_secret }}:latest,REDIS_URL=redis-url:latest" \
+            --set-secrets="DATABASE_URL=${{ inputs.database_url_secret }}:latest,REDIS_URL=${{ inputs.redis_url_secret }}:latest" \
             --set-env-vars="NODE_ENV=production,WORKER_MODE=http" \
             --no-allow-unauthenticated \
             --memory=512Mi --cpu=1 --min-instances=0 --max-instances=1
