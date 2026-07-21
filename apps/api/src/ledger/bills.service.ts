@@ -15,11 +15,12 @@ import {
   ScheduleError,
   type Cadence,
 } from '@homi/domain';
-import { lockActingMember, PostingProblem } from '@homi/ledger';
+import { lockActingMember } from '@homi/ledger';
 import { withIdempotency, type StoredResponse } from '../lib/idempotency';
 import { ActivityService } from '../activity/activity.service';
 import { activeMemberRole } from '../auth/house-role';
 import { DB } from '../db.module';
+import { throwPostingProblemAs400 } from './domain-errors';
 
 export interface CreateBillInput {
   description: string;
@@ -75,8 +76,7 @@ export class BillsService {
         try {
           await lockActingMember(tx, houseId, ownerId, { subject: 'Bill owner', verb: 'own a bill' });
         } catch (err) {
-          if (err instanceof PostingProblem) throw new BadRequestException(err.message);
-          throw err;
+          throwPostingProblemAs400(err);
         }
 
         // "after yesterday" so a bill created on its due day still posts

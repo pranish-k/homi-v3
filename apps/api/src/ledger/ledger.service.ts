@@ -8,17 +8,17 @@ import {
 import { withIdempotency, type StoredResponse } from '../lib/idempotency';
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { schema, type Db, type DbConn } from '@homi/db';
-import { computeBalances, SplitError, type Balances, type SplitMode } from '@homi/domain';
+import { computeBalances, type Balances, type SplitMode } from '@homi/domain';
 import {
   insertExpense,
   lockActingMember,
-  PostingProblem,
   resolveSplits,
   type ResolveSplitsInput,
 } from '@homi/ledger';
 import { ActivityService } from '../activity/activity.service';
 import { DB } from '../db.module';
 import { decodeCursor, encodeCursor } from '../lib/cursor';
+import { throwPostingProblemAs400 } from './domain-errors';
 
 /** HOMI-11: how long the recipient can dispute a recorded payment. */
 export const DISPUTE_WINDOW_MS = 72 * 60 * 60 * 1000;
@@ -119,10 +119,7 @@ export class LedgerService {
     try {
       return await resolveSplits(tx, houseId, input);
     } catch (err) {
-      if (err instanceof PostingProblem || err instanceof SplitError) {
-        throw new BadRequestException(err.message);
-      }
-      throw err;
+      throwPostingProblemAs400(err);
     }
   }
 
@@ -260,8 +257,7 @@ export class LedgerService {
             verb: 'receive payments',
           });
         } catch (err) {
-          if (err instanceof PostingProblem) throw new BadRequestException(err.message);
-          throw err;
+          throwPostingProblemAs400(err);
         }
 
         const [payment] = await tx
