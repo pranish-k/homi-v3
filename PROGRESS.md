@@ -1,20 +1,22 @@
 # HOMI v3 Progress
 
-**Last updated:** 2026-07-21 (Sprint 6: staging live on Cloud Run, real magic-link email shipped).
+**Last updated:** 2026-07-21 (Sprint 6 closing: all three committed stories done, review fixes merged, cutting the prod tag).
 **Phase:** R1 Money Core (weeks 1-12, committed scope).
-**Repo:** https://github.com/pranish-k/homi-v3 · latest tag `v0.5.0-sprint5`.
+**Repo:** https://github.com/pranish-k/homi-v3 · latest tag `v0.5.0-sprint5` (next: `v0.6.0-sprint6`).
 Full detail per sprint lives in `docs/agile/SPRINT_*.md`; infrastructure reference in `docs/infra/GCP.md`.
 
-## In progress (Sprint 6, started 2026-07-19)
+## Sprint 6 (started 2026-07-19, closing) - all committed stories done
 
 - Direction: TestFlight v1 ships the expense loop only (epic E6, HOMI-30..35); everything else stays server-side and UI-hidden until later builds.
 - Workflow: trunk-based, short-lived branches + PRs, merge on green CI; prod deploys are tag-triggered.
 - Done: the four Sprint 5 structural carryovers (one DbConn/Tx, shared requireAdmin, locked cannot-act guard in @homi/ledger, participant-scoped member locks).
-- Done: full GCP foundation and HOMI-14 staging half - every push to main deploys to Cloud Run (WIF auth, image push, migrations through the Cloud SQL Auth Proxy pre-traffic, api + worker deploys, /readyz gate).
+- Done: HOMI-14 - Cloud Run deploy pipeline; main pushes deploy staging automatically (WIF auth, image push, migrations through the Cloud SQL Auth Proxy pre-traffic, api + worker deploys, /readyz gate); prod is tag-triggered.
   Staging API: https://homi-api-staging-528839783533.us-east4.run.app; worker is Scheduler-driven (`WORKER_MODE=http`, tick per minute, prune hourly) so it scales to zero.
 - Done: HOMI-21 - magic links send as real mail via Resend from verified domain `contact.homiapp.app`; dev keeps the logged-link seam; prod refuses to boot without RESEND_API_KEY; verified end to end into a real inbox.
-- Next: HOMI-15a Sentry slice (API + worker error capture, release tagging), then prod first-tag deploy + its Scheduler jobs at sprint close, then HOMI-30 Expo scaffold stretch.
-- Still to add before outside testers: DMARC record on contact.homiapp.app.
+- Done: HOMI-15a - Sentry error capture + release tagging in API and worker, config-by-presence (off without SENTRY_DSN, never fails boot); API interceptor reports only 5xx, worker reports tick/prune failures; live on staging (secret `sentry-dsn`, release = commit SHA, environment tag), delivery verified end to end.
+- Done: pre-tag code review (8 findings) - 7 fixed across four area-grouped PRs (worker outcome/shutdown/teardown, magic-link 503, posting-problem helper, deploy inputs); Dockerfile nested-node_modules band-aid (#5) deferred as debt (needs a Docker-capable env to verify).
+- Remaining to close: prod first-tag deploy (`v0.6.0-sprint6`) + its Scheduler jobs; then optional HOMI-30 Expo scaffold stretch.
+- Deferred: DMARC record on contact.homiapp.app before outside testers (mail currently lands in the inbox, so not blocking own-house testing).
 
 ## Done, newest first
 
@@ -36,6 +38,6 @@ Full detail per sprint lives in `docs/agile/SPRINT_*.md`; infrastructure referen
 2. The agent code review is the standing gate at each sprint close; every run so far caught real bugs.
 3. Retro lesson: hazard-first design needs hazard-first tests, branch by branch - Sprint 5's serious bugs sat in designed-but-untested rare branches.
 4. Production refuses to boot without REDIS_URL, BETTER_AUTH_SECRET, and RESEND_API_KEY; deploys inherit these guarantees.
-5. Known debt: two rooms cannot merge when a roomed member claims a roomed placeholder (documented in acceptInvite); staging and prod share one Upstash Redis until real prod traffic.
+5. Known debt: two rooms cannot merge when a roomed member claims a roomed placeholder (documented in acceptInvite); staging and prod share one Upstash Redis until real prod traffic; Dockerfile carries a hand-maintained per-workspace nested-node_modules copy (review finding #5, deferred - needs a Docker env to fix safely).
 6. Local dev: no Docker; Homebrew postgresql@15 on port 5433 + Homebrew redis; `DATABASE_URL=postgres://homi@localhost:5433/homi npm run test:integration`.
 7. R1 discipline: R2-R4 are hypothesis backlog; if money retention is weak, fix money, do not start chores.
