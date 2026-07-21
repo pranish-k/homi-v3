@@ -67,8 +67,37 @@ Provisioning is complete; HOMI-14 CI/Cloud Run is next.
 Three deploy-shakeout fixes landed via PRs along the way: caller jobs must grant `id-token: write` to a reusable workflow; the runtime image must carry workspace-nested node_modules (better-auth was nested under apps/api, MODULE_NOT_FOUND at boot - a class local checkouts can never catch); `/healthz` is a GFE-reserved path on run.app domains so the smoke gate probes `/readyz`.
 First fully green end-to-end deploy run on main: 2026-07-21.
 Remaining for HOMI-14: prod first-tag deploy + its Scheduler jobs at sprint close.
+
+**2026-07-21, HOMI-21 shipped:** magic links send as real mail via Resend - a fetch wrapper (`email/mailer.ts`, no SDK dep), configuration by key presence like redis.ts, prod refuses to boot without RESEND_API_KEY, dev keeps the logger seam (suite guard drops an inherited key so tests can never send).
+Sending domain `contact.homiapp.app` verified in Resend (the account is pranish11khanal11@gmail.com; its sandbox sender could only reach that inbox); `EMAIL_FROM=HOMI <sign-in@contact.homiapp.app>` set on both envs in deploy.yml.
+Verified end to end on staging: POST /sign-in/magic-link -> Resend -> real Gmail inbox.
+DMARC record on contact.homiapp.app still to add before outside testers (deliverability).
 **Still to do:** provision Cloud SQL + Redis, real steps for the two stubbed CI deploy jobs (staging on main, prod on tags, migrations as a pre-traffic release step), Cloud Run services for API + worker, HOMI-21 Resend send hook, Sentry slice, then the HOMI-30 stretch (Expo scaffold).
 
 ## Sprint review notes (filled at close)
+
+**2026-07-21, pre-tag code review (medium-effort agent review over `v0.5.0-sprint5..HEAD`):**
+The four Sprint 5 carryover refactors traced clean at every call site (posting lock discipline, `requireAdmin`, unified `DbConn`/`Tx`) - no regressions.
+Eight findings, all in the new HOMI-14 / HOMI-21 surfaces; being fixed in four area-grouped PRs before the sprint tag.
+
+Correctness:
+1. Worker `/tick` and `/prune` always return HTTP 200 even on failure or skip, because `tick()`/`prune()` swallow their errors internally - Cloud Scheduler never sees a failed run, defeating the module's own "alert on job that did not run" rule (blocks HOMI-15a alerting). (`apps/worker/src/main.ts`)
+2. `sendMagicLink` awaits the Resend send with no try/catch, so any non-2xx (429/422) or the 10s timeout becomes a raw 500 to the signing-in user. (`apps/api/src/auth/auth.instance.ts`)
+3. Worker HTTP `shutdown()` does not await `server.close()` before `pool.end()`/exit, racing an in-flight `/tick` on SIGTERM (mitigated by bill-posting idempotency). (`apps/worker/src/main.ts`)
+
+Structure / altitude:
+4. Worker http and loop modes carry near-identical duplicated `shutdown()` + signal registration; a future teardown change (HOMI-15a Sentry flush) must be made twice. (`apps/worker/src/main.ts`)
+5. Dockerfile nested-`node_modules` fix `mkdir`s the target so the `COPY` succeeds even when content is missing, hiding a `MODULE_NOT_FOUND` until Cloud Run boot. (`Dockerfile`)
+6. `EMAIL_FROM` is hardcoded inline in the reusable deploy step instead of a `workflow_call` input, so staging and prod cannot diverge without editing the workflow. (`.github/workflows/deploy.yml`)
+7. `REDIS_URL` secret name is hardcoded in both deploys, not an input, making the documented staging/prod Upstash split a structural workflow edit. (`.github/workflows/deploy.yml`)
+
+Cleanup:
+8. The `PostingProblem` -> `BadRequestException` try/catch is copy-pasted verbatim in `bills.service.ts` and `ledger.service.ts`. (`apps/api/src/ledger/*.service.ts`)
+
+Fix PRs (area-grouped, code fixes first, pipeline last since it only verifies on the staging deploy its merge triggers):
+- PR A - worker correctness: findings 1, 3, 4. New unit test for the /tick /prune outcome-to-status mapping; full worker suite green.
+- PR B - mailer resilience: finding 2. deliverSignInLink maps a send failure to a retryable 503; unit-tested for the mapping and the no-leak guarantee.
+- PR C - cleanup: finding 8. throwPostingProblemAs400 helper; behavior-preserving, full API suite green.
+- PR D - deploy pipeline: findings 6, 7 (REDIS_URL and EMAIL_FROM are now workflow_call inputs). Finding 5 (Dockerfile nested-node_modules band-aid) is deferred: it is a structural change to a symlink-sensitive multi-stage build that cannot be verified without a local Docker daemon, and the current form works - carried as debt for a Docker-capable environment.
 
 ## Retrospective

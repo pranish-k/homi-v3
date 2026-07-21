@@ -35,7 +35,7 @@ Console: https://console.cloud.google.com/security/secret-manager?project=homi-t
 | `database-url-staging` | Full postgres URL for `app_staging` -> `homi_staging`, unix-socket form `?host=/cloudsql/homi-testflight:us-east4:homi-db` |
 | `database-url-prod` | Same for `app_prod` -> `homi_prod` |
 | `better-auth-secret` | Generated Better Auth secret |
-| `resend-api-key` | Resend API key |
+| `resend-api-key` | Resend API key (send-only scope; domain admin happens in the Resend dashboard, account pranish11khanal11@gmail.com) |
 
 `homi-runtime@` has `secretmanager.secretAccessor` on all of them.
 
@@ -67,6 +67,12 @@ gcloud secrets versions access latest --secret=database-url-staging
 - Console: https://console.upstash.com
 - **Caveat:** one database shared by staging and prod for now (free tier is one db).
   Fine while prod has no traffic; before real prod use, create a second Upstash db so staging rate-limit keys and realtime pub/sub channels cannot bleed into prod, and split into `redis-url-staging`/`redis-url-prod`.
+
+## Email (Resend, HOMI-21)
+
+- Verified sending domain: `contact.homiapp.app` (DNS at Namecheap-hosted nameservers for homiapp.app); sender `HOMI <sign-in@contact.homiapp.app>` via `EMAIL_FROM` in deploy.yml
+- Without `EMAIL_FROM`/key the API falls back per env: dev logs links, prod refuses to boot
+- Still to add: DMARC TXT record on contact.homiapp.app before outside testers
 
 ## Deploy pipeline (HOMI-14)
 
