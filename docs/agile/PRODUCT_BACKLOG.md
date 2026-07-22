@@ -68,10 +68,10 @@ The client is Expo React Native (TypeScript) against the deployed staging API fr
 
 | ID | Story | Points | Status |
 |---|---|---|---|
-| HOMI-30 | As a developer, an Expo app scaffold builds via EAS and installs from the TestFlight internal track | 5 | Backlog |
-| HOMI-31 | As a user, I sign in from my phone with a magic link and stay signed in (cookie session against the deployed API) | 5 | Backlog |
-| HOMI-32 | As a user, I create a house or join one by tapping an invite link | 3 | Backlog |
-| HOMI-33 | As a member, the HOME tab shows balances, members, and the feed head from the snapshot endpoint, refreshed by realtime hints | 5 | Backlog |
+| HOMI-30 | As a developer, an Expo app scaffold builds via EAS and installs from the TestFlight internal track | 5 | Sprint 7 |
+| HOMI-31 | As a user, I sign in from my phone with a magic link and stay signed in (cookie session against the deployed API) | 5 | Sprint 7 |
+| HOMI-32 | As a user, I create a house or join one by tapping an invite link | 3 | Sprint 7 |
+| HOMI-33 | As a member, the HOME tab shows balances, members, and the feed head from the snapshot endpoint, refreshed by realtime hints | 5 | Backlog (Sprint 7 stretch) |
 | HOMI-34 | As a member, I add an expense (equal or exact split) in under 15 seconds (the R1 release gate) | 5 | Backlog |
 | HOMI-35 | As a member, I settle up: record a payment in one tap, with Venmo/Zelle/Cash App deep links | 3 | Backlog |
 

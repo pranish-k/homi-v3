@@ -1,9 +1,18 @@
 # HOMI v3 Progress
 
-**Last updated:** 2026-07-21 (Sprint 6 closed: all three committed stories done, prod is live).
+**Last updated:** 2026-07-21 (Sprint 7 planned and started: the first TestFlight client sprint).
 **Phase:** R1 Money Core (weeks 1-12, committed scope).
 **Repo:** https://github.com/pranish-k/homi-v3 · latest tag `v0.6.0-sprint6`.
 Full detail per sprint lives in `docs/agile/SPRINT_*.md`; infrastructure reference in `docs/infra/GCP.md`.
+
+## Sprint 7 (started 2026-07-21) - HOMI gets onto a phone
+
+- Goal: an Expo app installs from the TestFlight internal track, signs in with a magic link against the deployed staging API, and lands in a house.
+- Committed (13 points): HOMI-30 (Expo scaffold + EAS + TestFlight internal track, 5), HOMI-31 (magic-link sign-in with persistent cookie session, 5), HOMI-32 (create or join a house via invite link, 3); stretch HOMI-33 (HOME tab from the snapshot endpoint, 5).
+- Decisions (2026-07-21): bundle id `app.homiapp.mobile`; client at `apps/mobile` (Expo + expo-router, TypeScript); dev builds hit staging by default via `EXPO_PUBLIC_API_URL`-overridable config.
+- HOMI-30 split: Half A (workspace scaffold, /readyz boot screen, CI wiring) is agent work; Half B (EAS project, Apple signing, TestFlight upload) needs Pranish's logins.
+- UI direction: placeholder styling for the committed stories; Pranish gives visual direction before HOMI-33/34.
+- Full plan in `docs/agile/SPRINT_07.md`.
 
 ## Sprint 6 (2026-07-19 to 2026-07-21, closed `v0.6.0-sprint6`) - all committed stories done, prod live
 
@@ -16,7 +25,7 @@ Full detail per sprint lives in `docs/agile/SPRINT_*.md`; infrastructure referen
 - Done: HOMI-15a - Sentry error capture + release tagging in API and worker, config-by-presence (off without SENTRY_DSN, never fails boot); API interceptor reports only 5xx, worker reports tick/prune failures; live on staging (secret `sentry-dsn`, release = commit SHA, environment tag), delivery verified end to end.
 - Done: pre-tag code review (8 findings) - 7 fixed across four area-grouped PRs (worker outcome/shutdown/teardown, magic-link 503, posting-problem helper, deploy inputs); Dockerfile nested-node_modules band-aid (#5) deferred as debt (needs a Docker-capable env to verify).
 - Done: first prod deploy (tag `v0.6.0-sprint6`) - `homi-api` (https://homi-api-ko63dsolia-uk.a.run.app, `/readyz` 200) and `homi-worker` created, migrations ran against the empty `homi_prod`, both on revision `00001` at 100% traffic; prod Scheduler jobs (`homi-worker-tick` per minute, `homi-worker-prune` hourly at :07) created and verified 2xx after the `run.invoker` grant propagated.
-- Next up: optional HOMI-30 Expo scaffold stretch, then Sprint 7 planning.
+- Next up: done - Sprint 7 planned and started 2026-07-21 (see above).
 - Deferred: DMARC record on contact.homiapp.app before outside testers (mail currently lands in the inbox, so not blocking own-house testing); split Upstash Redis into staging/prod before real prod traffic; Dockerfile nested-node_modules band-aid (review finding #5).
 
 ## Done, newest first
