@@ -3,6 +3,7 @@ import { betterAuth } from 'better-auth';
 import { APIError, createAuthMiddleware } from 'better-auth/api';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { magicLink } from 'better-auth/plugins';
+import { expo } from '@better-auth/expo';
 import { createDb, schema } from '@homi/db';
 import { getSharedPool } from '../db.pool';
 import {
@@ -96,6 +97,7 @@ export async function deliverSignInLink(
 
 function buildAuth() {
   const isProduction = process.env.NODE_ENV === 'production';
+  const baseURL = process.env.BETTER_AUTH_URL ?? 'http://localhost:3000';
   const secret = process.env.BETTER_AUTH_SECRET;
   if (isProduction && !secret) {
     // a fallback secret in prod means anyone with the repo can forge sessions
@@ -113,8 +115,12 @@ function buildAuth() {
   }
 
   return betterAuth({
-    baseURL: process.env.BETTER_AUTH_URL ?? 'http://localhost:3000',
+    baseURL,
     secret: secret ?? 'homi-dev-secret-do-not-use-in-prod',
+    // HOMI-31: the mobile app is a non-browser origin; its deep-link
+    // scheme must be trusted for callback URLs. Expo dev servers use
+    // exp:// with a LAN address, so those stay out of production.
+    trustedOrigins: ['homi://', ...(isProduction ? [] : ['exp://', 'exp://**'])],
     database: drizzleAdapter(db, {
       provider: 'pg',
       schema: {
@@ -133,10 +139,16 @@ function buildAuth() {
       before: magicLinkRateLimit,
     },
     plugins: [
+      expo(),
       magicLink({
-        sendMagicLink: async ({ email, url }) => {
+        sendMagicLink: async ({ email, token, url }) => {
           if (isMailerConfigured()) {
-            await deliverSignInLink(email, url);
+            // HOMI-31: the emailed link goes to the interstitial page
+            // (GET /auth/link), which hands the token to the app via the
+            // homi:// deep link; the app then verifies it itself so the
+            // session cookie lands in the app, not the mail browser. The
+            // raw verify URL would sign in Safari instead.
+            await deliverSignInLink(email, `${baseURL}/auth/link?token=${encodeURIComponent(token)}`);
             return;
           }
           // requireMailerInProduction() makes this branch unreachable in

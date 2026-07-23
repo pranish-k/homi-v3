@@ -1,54 +1,35 @@
-import { useCallback, useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, useColorScheme, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, useColorScheme, View } from 'react-native';
 
-import { API_BASE } from '@/api/config';
+import { authClient } from '@/auth/client';
+import SignInScreen from '@/auth/SignInScreen';
 
-type Check =
-  | { state: 'checking' }
-  | { state: 'ok' }
-  | { state: 'error'; detail: string };
-
-// Boot screen for HOMI-30 Half A: proves the phone-to-staging path by
-// calling the API's public readiness probe. Replaced by real screens in HOMI-31+.
-export default function BootScreen() {
-  const [check, setCheck] = useState<Check>({ state: 'checking' });
+// HOMI-31: session gate. Signed out -> magic-link sign-in; signed in ->
+// placeholder home proving the persistent cookie session (replaced by
+// the real HOME tab in HOMI-33).
+export default function Index() {
   const dark = useColorScheme() === 'dark';
+  const { data: session, isPending } = authClient.useSession();
 
-  const runCheck = useCallback(async () => {
-    setCheck({ state: 'checking' });
-    try {
-      const res = await fetch(`${API_BASE}/readyz`);
-      if (res.ok) {
-        setCheck({ state: 'ok' });
-      } else {
-        setCheck({ state: 'error', detail: `HTTP ${res.status}` });
-      }
-    } catch (err) {
-      setCheck({ state: 'error', detail: err instanceof Error ? err.message : String(err) });
-    }
-  }, []);
+  if (isPending) {
+    return (
+      <View style={[styles.container, dark && styles.containerDark]}>
+        <ActivityIndicator color="#208AEF" />
+      </View>
+    );
+  }
 
-  useEffect(() => {
-    void runCheck();
-  }, [runCheck]);
-
-  const statusLine =
-    check.state === 'checking'
-      ? 'checking API…'
-      : check.state === 'ok'
-        ? 'API ready'
-        : `API unreachable (${check.detail})`;
+  if (!session) return <SignInScreen />;
 
   return (
     <View style={[styles.container, dark && styles.containerDark]}>
       <Text style={[styles.title, dark && styles.textDark]}>HOMI</Text>
-      <Text style={[styles.status, dark && styles.textDark]}>{statusLine}</Text>
-      <Text style={styles.url}>{API_BASE}</Text>
-      {check.state === 'error' && (
-        <Pressable onPress={runCheck} style={styles.retry}>
-          <Text style={styles.retryLabel}>Retry</Text>
-        </Pressable>
-      )}
+      <Text style={[styles.body, dark && styles.textDark]}>
+        Signed in as {session.user.name || session.user.email}
+      </Text>
+      <Text style={styles.detail}>{session.user.email}</Text>
+      <Pressable onPress={() => void authClient.signOut()} style={styles.signOut}>
+        <Text style={styles.signOutLabel}>Sign out</Text>
+      </Pressable>
     </View>
   );
 }
@@ -69,25 +50,25 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#111111',
   },
-  status: {
+  body: {
     fontSize: 17,
     color: '#111111',
+  },
+  detail: {
+    fontSize: 13,
+    color: '#888888',
   },
   textDark: {
     color: '#ffffff',
   },
-  url: {
-    fontSize: 12,
-    color: '#888888',
-  },
-  retry: {
+  signOut: {
     marginTop: 8,
     paddingHorizontal: 20,
     paddingVertical: 10,
     borderRadius: 8,
     backgroundColor: '#208AEF',
   },
-  retryLabel: {
+  signOutLabel: {
     color: '#ffffff',
     fontSize: 15,
     fontWeight: '600',
