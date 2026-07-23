@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { betterAuth } from 'better-auth';
 import { APIError, createAuthMiddleware } from 'better-auth/api';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
-import { magicLink } from 'better-auth/plugins';
+import { emailOTP, magicLink } from 'better-auth/plugins';
 import { expo } from '@better-auth/expo';
 import { createDb, schema } from '@homi/db';
 import { getSharedPool } from '../db.pool';
@@ -14,13 +14,17 @@ import {
 } from '../email/mailer';
 import { getRateLimiter } from '../ratelimit/rate-limiter';
 
-// HOMI-24: the magic-link endpoint is an unauthenticated email-send
-// loop (review M6). Budgets are per target inbox first (bombing one
-// address) and per source IP second (rotating addresses to burn email
-// quota). Fifteen-minute windows match the link TTL order of magnitude.
-const MAGIC_LINK_WINDOW_SEC = 15 * 60;
-const MAGIC_LINK_PER_EMAIL = 3;
-const MAGIC_LINK_PER_IP = 30;
+// HOMI-24: the passwordless sign-in endpoints are unauthenticated
+// email-send loops (review M6). Budgets are per target inbox first
+// (bombing one address) and per source IP second (rotating addresses to
+// burn email quota). Fifteen-minute windows match the credential TTL
+// order of magnitude. HOMI-31: the magic-link and email-OTP sends share
+// one budget, keyed by inbox/IP without the path, so offering a second
+// channel does not double an attacker's send allowance.
+const SIGN_IN_EMAIL_WINDOW_SEC = 15 * 60;
+const SIGN_IN_EMAIL_PER_EMAIL = 3;
+const SIGN_IN_EMAIL_PER_IP = 30;
+const SIGN_IN_EMAIL_PATHS = new Set(['/sign-in/magic-link', '/email-otp/send-verification-otp']);
 
 function requestIp(request: Request | undefined): string | undefined {
   // the load balancer APPENDS the real client IP, so only the LAST
@@ -33,16 +37,16 @@ function requestIp(request: Request | undefined): string | undefined {
   return parts?.[parts.length - 1]?.trim() || undefined;
 }
 
-const magicLinkRateLimit = createAuthMiddleware(async (ctx) => {
-  if (ctx.path !== '/sign-in/magic-link') return;
+const signInEmailRateLimit = createAuthMiddleware(async (ctx) => {
+  if (!SIGN_IN_EMAIL_PATHS.has(ctx.path)) return;
   const email = typeof ctx.body?.email === 'string' ? ctx.body.email.toLowerCase() : undefined;
   const ip = requestIp(ctx.request);
   const limiter = getRateLimiter();
   const decisions = await Promise.all([
     email
-      ? limiter.consume(`ml:email:${email}`, MAGIC_LINK_PER_EMAIL, MAGIC_LINK_WINDOW_SEC)
+      ? limiter.consume(`signin:email:${email}`, SIGN_IN_EMAIL_PER_EMAIL, SIGN_IN_EMAIL_WINDOW_SEC)
       : undefined,
-    ip ? limiter.consume(`ml:ip:${ip}`, MAGIC_LINK_PER_IP, MAGIC_LINK_WINDOW_SEC) : undefined,
+    ip ? limiter.consume(`signin:ip:${ip}`, SIGN_IN_EMAIL_PER_IP, SIGN_IN_EMAIL_WINDOW_SEC) : undefined,
   ]);
   const blocked = decisions.find((d) => d && !d.allowed);
   if (blocked) {
@@ -57,15 +61,33 @@ const magicLinkRateLimit = createAuthMiddleware(async (ctx) => {
 /**
  * Better Auth (HOMI-2, decision D3): auth library runs inside our
  * service, sessions and identities live in our Postgres. No passwords
- * (spec 5.2): magic links now, Apple/Google once OAuth credentials are
- * configured via env.
+ * (spec 5.2): magic links and email OTP codes now, Apple/Google once
+ * OAuth credentials are configured via env.
  *
- * Email delivery (HOMI-21): with RESEND_API_KEY set, magic links send
- * as real mail; without it, dev logs the URL and exposes it via
- * lastMagicLink for tests and local sign-in, while production refuses
- * to boot (delivery is the only way anyone can sign in).
+ * Two passwordless channels (HOMI-31): the magic link is one-tap when it
+ * opens the app, but the emailed-link -> app hop can fail (desktop mail,
+ * a browser that will not honor the homi:// bounce). The email OTP code
+ * is the deep-link-free fallback: the user types a 6-digit code and the
+ * session cookie lands on the app's own request, so sign-in can never be
+ * stranded in a browser.
+ *
+ * Email delivery (HOMI-21): with RESEND_API_KEY set, both channels send
+ * as real mail; without it, dev logs the credential and exposes it via
+ * lastMagicLink / lastOtp for tests and local sign-in, while production
+ * refuses to boot (delivery is the only way anyone can sign in).
  */
 export const lastMagicLink = new Map<string, string>();
+export const lastOtp = new Map<string, string>();
+
+// bounded so a long-running dev process cannot grow one entry per
+// distinct email forever (mirrors the magic-link capture)
+function captureDevCredential(store: Map<string, string>, email: string, value: string): void {
+  if (store.size >= 100) {
+    const oldest = store.keys().next().value;
+    if (oldest) store.delete(oldest);
+  }
+  store.set(email, value);
+}
 
 /**
  * Send the sign-in email, translating any delivery failure into a
@@ -89,6 +111,33 @@ export async function deliverSignInLink(
     });
   } catch (err) {
     console.error('[auth] magic-link send failed', err);
+    throw new APIError('SERVICE_UNAVAILABLE', {
+      message: 'Could not send the sign-in email right now; please try again in a moment.',
+    });
+  }
+}
+
+/**
+ * Send the sign-in code email. Same delivery-failure masking as
+ * deliverSignInLink (a provider 429/422 or timeout becomes a retryable
+ * 503, never echoing the provider error) since this path also carries a
+ * sign-in credential. Exported with an injectable mailer for the failure
+ * mapping to stay unit-testable.
+ */
+export async function deliverSignInCode(
+  email: string,
+  code: string,
+  mailer: Mailer = getMailer(),
+): Promise<void> {
+  try {
+    await mailer.send({
+      to: email,
+      subject: `${code} is your HOMI sign-in code`,
+      text: `Your HOMI sign-in code is ${code}.\n\nEnter it in the app to sign in. The code expires shortly. If you did not request it, ignore this email.`,
+      html: `<p>Your HOMI sign-in code is:</p><p style="font-size:24px;font-weight:bold;letter-spacing:2px">${code}</p><p>Enter it in the app to sign in. The code expires shortly. If you did not request it, ignore this email.</p>`,
+    });
+  } catch (err) {
+    console.error('[auth] sign-in code send failed', err);
     throw new APIError('SERVICE_UNAVAILABLE', {
       message: 'Could not send the sign-in email right now; please try again in a moment.',
     });
@@ -136,7 +185,7 @@ function buildAuth() {
     emailAndPassword: { enabled: false },
     socialProviders,
     hooks: {
-      before: magicLinkRateLimit,
+      before: signInEmailRateLimit,
     },
     plugins: [
       expo(),
@@ -156,14 +205,27 @@ function buildAuth() {
           if (isProduction) {
             throw new Error('Email delivery is not configured (HOMI-21)');
           }
-          // bounded: a long-running dev process must not grow one entry
-          // per distinct email forever
-          if (lastMagicLink.size >= 100) {
-            const oldest = lastMagicLink.keys().next().value;
-            if (oldest) lastMagicLink.delete(oldest);
-          }
-          lastMagicLink.set(email, url);
+          captureDevCredential(lastMagicLink, email, url);
           console.log(`[auth] magic link for ${email}: ${url}`);
+        },
+      }),
+      // HOMI-31: the deep-link-free sign-in channel. otpLength/expiresIn
+      // pinned to Better Auth's defaults for clarity; disableSignUp stays
+      // false so a code signs up a first-time user, matching the magic
+      // link. Sends share the sign-in email budget (signInEmailRateLimit).
+      emailOTP({
+        otpLength: 6,
+        expiresIn: 5 * 60,
+        sendVerificationOTP: async ({ email, otp }) => {
+          if (isMailerConfigured()) {
+            await deliverSignInCode(email, otp);
+            return;
+          }
+          if (isProduction) {
+            throw new Error('Email delivery is not configured (HOMI-21)');
+          }
+          captureDevCredential(lastOtp, email, otp);
+          console.log(`[auth] sign-in code for ${email}: ${otp}`);
         },
       }),
     ],

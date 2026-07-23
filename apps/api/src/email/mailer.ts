@@ -35,8 +35,8 @@ export function isMailerConfigured(): boolean {
 
 export function requireMailerInProduction(): void {
   if (process.env.NODE_ENV === 'production' && !isMailerConfigured()) {
-    // without email there is no way to sign in (magic links only)
-    throw new Error('RESEND_API_KEY must be set in production (magic-link delivery)');
+    // without email there is no way to sign in (magic link + OTP code)
+    throw new Error('RESEND_API_KEY must be set in production (passwordless sign-in delivery)');
   }
 }
 
