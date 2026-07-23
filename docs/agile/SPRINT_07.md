@@ -32,6 +32,17 @@ Committed: 13 points, matching Sprint 6's committed size.
 
 ## Progress log
 
+**2026-07-21, HOMI-30 Half A done (merged to main):** `apps/mobile` scaffold - Expo SDK 57 + expo-router as npm workspace `@homi/mobile`, TypeScript strict with a self-contained tsconfig, bundle id `app.homiapp.mobile`, boot screen proving the phone-to-staging path via `/readyz` (verified in the iOS simulator: "API ready" against the live staging URL).
+Typecheck joins the root workspaces script (and thus the CI quality job); root eslint covers the TSX files (verified the TS parser applies).
+Dockerfile confirmed unaffected: `npm ci` without `apps/mobile` present resolves backend-only (verified by simulating the Docker build context locally), so backend images stay lean with no workflow changes.
+
+**2026-07-22, HOMI-30 Half B done - HOMI is on TestFlight:** EAS project `@pkhanal/homi` created and linked; `eas.json` `internal` profile (remote versions, auto-increment).
+Apple side required two account chores first: accepting the updated Developer Program License Agreement and the EU DSA trader status declaration - both blocked bundle-id registration with a misleading "failed to register" error.
+Cloud build succeeded (buildNumber 3 after two agreement-blocked attempts), `eas submit` created the App Store Connect app (ASC App ID 6793742099; name "HOMI (63cdfc)" because "HOMI" was taken - display name on device is still HOMI; rename in ASC later), uploaded the binary, created the internal TestFlight group "Team (Expo)", and enabled access for the account holder.
+An App Store Connect API key was generated and stored on EAS servers, so future builds and submissions run non-interactively.
+Interactive EAS/Apple steps must run in a real terminal, not the agent session shell (EAS falls back to non-interactive mode without a TTY).
+`ITSAppUsesNonExemptEncryption=false` set in app.json (HTTPS-only, exempt) so builds skip the manual export-compliance question.
+
 ## Sprint review notes (filled at close)
 
 ## Retrospective
