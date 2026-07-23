@@ -51,7 +51,6 @@ Verified E2E in the iOS simulator against a local API: sign-in form -> logged li
 Gotchas hit: `@better-auth/expo` needs `expo-network` at cold start with a cached session (crashes without it - only caught by the relaunch test); npm produced an invalid dedupe giving better-auth zod@3 (runtime `z.coerce.boolean(...).meta is not a function`), fixed by pinning better-auth + @better-auth/expo to exactly 1.6.23 in both workspaces; expoClient's types don't satisfy `BetterAuthClientPlugin` under TS 6, needing a narrow structural cast in `client.ts`.
 Dev-mode reminder: without `RESEND_API_KEY` the API logs the magic link instead of emailing it; real emails require the staging/prod deploy.
 Remaining for the story: merge + staging deploy, then verify the real email flow from TestFlight (needs a fresh EAS internal build to pick up the new screens).
-
 ## Sprint review notes (filled at close)
 
 ## Retrospective
