@@ -1,5 +1,5 @@
 import { createAuthClient } from 'better-auth/react';
-import { magicLinkClient } from 'better-auth/client/plugins';
+import { emailOTPClient, magicLinkClient } from 'better-auth/client/plugins';
 import { expoClient } from '@better-auth/expo/client';
 import * as SecureStore from 'expo-secure-store';
 
@@ -23,6 +23,9 @@ export const authClient = createAuthClient({
   baseURL: API_BASE,
   plugins: [
     magicLinkClient(),
+    // HOMI-31: the deep-link-free sign-in path - request a code, type it
+    // in, and the session lands on this request without any homi:// hop.
+    emailOTPClient(),
     expoClient({
       scheme: 'homi',
       storagePrefix: 'homi',
