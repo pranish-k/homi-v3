@@ -43,6 +43,15 @@ An App Store Connect API key was generated and stored on EAS servers, so future 
 Interactive EAS/Apple steps must run in a real terminal, not the agent session shell (EAS falls back to non-interactive mode without a TTY).
 `ITSAppUsesNonExemptEncryption=false` set in app.json (HTTPS-only, exempt) so builds skip the manual export-compliance question.
 
+**2026-07-22, HOMI-31 built (branch `homi31-magic-link`, E2E-verified in the simulator):** magic-link sign-in on the phone with a persistent cookie session.
+Design: the emailed link points at a new API interstitial (`GET /auth/link?token=`) that bounces into the app via the `homi://auth/verify` deep link; the app then calls the verify endpoint itself (Better Auth `magicLink.verify`), so the session cookie is set on the app's own request and stored in SecureStore - emailing the raw verify URL would have signed in Safari instead of the app.
+API: `@better-auth/expo` server plugin + `trustedOrigins` for `homi://` (and `exp://` outside production); dev/test `lastMagicLink` still captures the raw verify URL, so the existing test helper is untouched; new `auth-mobile.integration.test.ts` covers the interstitial (token validation, no server-verify link on the page) and the app-style verify flow including token single-use.
+Mobile: Better Auth client (`magicLinkClient` + `expoClient` with SecureStore) at `src/auth/client.ts`, session-gated index (sign-in screen / signed-in placeholder), `src/app/auth/verify.tsx` deep-link route.
+Verified E2E in the iOS simulator against a local API: sign-in form -> logged link -> deep link -> "Signed in as ..."; session survives app kill+relaunch; replaying a consumed token shows the error screen.
+Gotchas hit: `@better-auth/expo` needs `expo-network` at cold start with a cached session (crashes without it - only caught by the relaunch test); npm produced an invalid dedupe giving better-auth zod@3 (runtime `z.coerce.boolean(...).meta is not a function`), fixed by pinning better-auth + @better-auth/expo to exactly 1.6.23 in both workspaces; expoClient's types don't satisfy `BetterAuthClientPlugin` under TS 6, needing a narrow structural cast in `client.ts`.
+Dev-mode reminder: without `RESEND_API_KEY` the API logs the magic link instead of emailing it; real emails require the staging/prod deploy.
+Remaining for the story: merge + staging deploy, then verify the real email flow from TestFlight (needs a fresh EAS internal build to pick up the new screens).
+
 ## Sprint review notes (filled at close)
 
 ## Retrospective
