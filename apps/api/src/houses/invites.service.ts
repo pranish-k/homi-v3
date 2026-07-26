@@ -62,12 +62,73 @@ export class InvitesService {
         .returning();
     });
     if (!invite) throw new Error('insert returned no row');
-    const origin = process.env.INVITE_LINK_ORIGIN ?? 'https://homi.app';
+    // HOMI-32: /j/<token> is served by this API, so the fallback follows
+    // the API's own origin rather than a marketing domain that would
+    // hand out links nothing answers.
+    const origin =
+      process.env.INVITE_LINK_ORIGIN ?? process.env.BETTER_AUTH_URL ?? 'http://localhost:3000';
     return {
       url: `${origin}/j/${token}`,
       expiresAt: invite.expiresAt,
       maxUses: invite.maxUses,
       placeholderUserId: invite.placeholderUserId,
+    };
+  }
+
+  /**
+   * HOMI-32: what the app shows before the join button - "Join Maple
+   * Street?" beats accepting blind. Read-only and idempotent, so a
+   * preview never burns a use; holding the token is already the
+   * authority to join, so the house name and inviter are no extra
+   * disclosure. A bound placeholder is named here too, because "join as
+   * Sam" is a materially different decision than joining fresh.
+   */
+  async previewInvite(token: string) {
+    const [invite] = await this.db
+      .select({
+        houseId: schema.invites.houseId,
+        houseName: schema.houses.name,
+        expiresAt: schema.invites.expiresAt,
+        revokedAt: schema.invites.revokedAt,
+        uses: schema.invites.uses,
+        maxUses: schema.invites.maxUses,
+        placeholderUserId: schema.invites.placeholderUserId,
+        invitedByName: schema.users.name,
+      })
+      .from(schema.invites)
+      .innerJoin(schema.houses, eq(schema.houses.id, schema.invites.houseId))
+      .innerJoin(schema.users, eq(schema.users.id, schema.invites.createdBy))
+      .where(eq(schema.invites.tokenHash, hashToken(token)));
+    if (
+      !invite ||
+      invite.revokedAt !== null ||
+      invite.expiresAt < new Date() ||
+      invite.uses >= invite.maxUses
+    ) {
+      throw new BadRequestException('This invite link is no longer valid');
+    }
+
+    let placeholderName: string | null = null;
+    if (invite.placeholderUserId !== null) {
+      const [placeholder] = await this.db
+        .select({ name: schema.users.name, displayName: schema.houseMembers.displayName })
+        .from(schema.houseMembers)
+        .innerJoin(schema.users, eq(schema.users.id, schema.houseMembers.userId))
+        .where(
+          and(
+            eq(schema.houseMembers.houseId, invite.houseId),
+            eq(schema.houseMembers.userId, invite.placeholderUserId),
+          ),
+        );
+      placeholderName = placeholder ? (placeholder.displayName ?? placeholder.name) : null;
+    }
+
+    return {
+      houseId: invite.houseId,
+      houseName: invite.houseName,
+      invitedByName: invite.invitedByName,
+      expiresAt: invite.expiresAt,
+      placeholderName,
     };
   }
 

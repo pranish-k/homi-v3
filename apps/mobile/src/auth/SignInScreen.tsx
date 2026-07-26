@@ -27,7 +27,9 @@ type Phase =
   | { state: 'sendingLink' }
   | { state: 'linkSent' };
 
-export default function SignInScreen() {
+// HOMI-32: the join flow renders this in place, so it can say why
+// sign-in is being asked for instead of dropping the user at a bare form.
+export default function SignInScreen({ prompt }: { prompt?: string } = {}) {
   const dark = useColorScheme() === 'dark';
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
@@ -177,7 +179,7 @@ export default function SignInScreen() {
     >
       <Text style={[styles.title, dark && styles.textDark]}>HOMI</Text>
       <Text style={[styles.body, dark && styles.textDark]}>
-        Sign in with your email. No password needed.
+        {prompt ?? 'Sign in with your email. No password needed.'}
       </Text>
       <TextInput
         style={[styles.input, dark && styles.inputDark]}
