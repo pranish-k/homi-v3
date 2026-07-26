@@ -50,7 +50,26 @@ Mobile: Better Auth client (`magicLinkClient` + `expoClient` with SecureStore) a
 Verified E2E in the iOS simulator against a local API: sign-in form -> logged link -> deep link -> "Signed in as ..."; session survives app kill+relaunch; replaying a consumed token shows the error screen.
 Gotchas hit: `@better-auth/expo` needs `expo-network` at cold start with a cached session (crashes without it - only caught by the relaunch test); npm produced an invalid dedupe giving better-auth zod@3 (runtime `z.coerce.boolean(...).meta is not a function`), fixed by pinning better-auth + @better-auth/expo to exactly 1.6.23 in both workspaces; expoClient's types don't satisfy `BetterAuthClientPlugin` under TS 6, needing a narrow structural cast in `client.ts`.
 Dev-mode reminder: without `RESEND_API_KEY` the API logs the magic link instead of emailing it; real emails require the staging/prod deploy.
-Remaining for the story: merge + staging deploy, then verify the real email flow from TestFlight (needs a fresh EAS internal build to pick up the new screens).
+
+**2026-07-22, HOMI-31 extended (same branch) with an email-OTP code path:** Pranish was wary the emailed link might not open the app, so a deep-link-free fallback was added alongside the link.
+Better Auth's `emailOTP` server plugin and `emailOTPClient` are already in the pinned 1.6.23 (no dependency change, so no zod dedupe trap; no migration - codes live in the existing `verification` table; no hand-written routes - the plugin auto-mounts `/api/auth/email-otp/send-verification-otp` and `/api/auth/sign-in/email-otp`).
+The magic-link rate limit was renamed `signInEmailRateLimit` and now covers both send channels under one shared budget; `signIn.emailOtp` accepts an optional `name` so first-signup naming works on either channel.
+Mobile SignInScreen now leads with "Email me a code" (primary) and "or send me a link instead" (secondary), with a new code-entry phase; new `auth-otp.integration.test.ts` (3 tests).
+
+**2026-07-24, HOMI-31 DONE - merged and verified on staging:** PR #24 (`homi31-magic-link` -> `main`) merged on green CI (`main` @ `c0afdd6`); it supersedes the earlier PR #23, which was closed unmerged after conflict churn.
+The merge auto-deployed staging (`homi-api-staging` revision 00013-699, migrations applied, `/readyz` 200).
+Real-email OTP flow verified end to end against live staging: `send-verification-otp` delivered a real Resend email, and `POST /api/auth/sign-in/email-otp` with the emailed code returned 200 with a session token.
+Note: the `name` param only applies at first signup, so pre-existing accounts keep their stored name.
+Still unverified on a real device: the magic-link `homi://` deep link (needs an EAS build to exercise) - deferred with the TestFlight build below.
+
+**2026-07-24, decision - first TestFlight build deferred:** Pranish chose not to cut an EAS/TestFlight build for sign-in alone; the first build waits until the app can create/join a house and split a cost, matching E6's own "expense loop only" definition of TestFlight v1.
+So HOMI-31 stays staging-verified only; no EAS build this step.
+
+## Next steps
+
+- **HOMI-32 (create a house / join by invite link, 3 pts)** is the next story - can proceed on placeholder styling now; backend already exists (HOMI-3 create-house, HOMI-8 invites).
+- **HOMI-33 (HOME tab) and HOMI-34 (add expense) need Pranish's visual direction first** - they are the face of the app and the under-15-seconds release gate, so the expense UI should not be built on placeholder styling.
+- **First TestFlight build** comes after the expense loop is wired (HOMI-32 -> 33 -> 34, and ideally HOMI-35 settle up): `cd apps/mobile && npx eas-cli build --platform ios --profile internal --auto-submit` (run in a real terminal; ASC API key already on EAS, so submit is non-interactive).
 
 ## Sprint review notes (filled at close)
 
