@@ -61,6 +61,12 @@ export class HousesController {
     private readonly snapshot: SnapshotService,
   ) {}
 
+  /** HOMI-32: the client's post-sign-in fork - create/join, or open the house. */
+  @Get()
+  async list(@Req() req: AuthedRequest) {
+    return this.houses.listHouses(req.userId);
+  }
+
   @Post()
   async create(@Req() req: AuthedRequest, @Body() body: unknown) {
     const input = parseBody(createHouseSchema, body);
@@ -133,6 +139,14 @@ export class HousesController {
 @UseGuards(AuthGuard)
 export class InvitesController {
   constructor(private readonly invites: InvitesService) {}
+
+  /** HOMI-32: name the house before the join button, so nobody accepts blind. */
+  @Get(':token')
+  @UseGuards(RateLimitGuard)
+  @RateLimit({ bucket: 'invite:preview', ...INVITE_RULE })
+  async preview(@Param('token') token: string) {
+    return this.invites.previewInvite(token);
+  }
 
   @Post(':token/accept')
   @UseGuards(RateLimitGuard)
