@@ -4,7 +4,8 @@
 By sprint end an Expo app installs from the TestFlight internal track, signs in with a magic link against the deployed staging API, and lands the user in a house they created or joined.
 This is the first client sprint of epic E6 (TestFlight v1, decided 2026-07-19): the expense loop only, everything else the backend supports stays hidden until a later build surfaces it.
 
-**Dates:** started 2026-07-21.
+**Dates:** started 2026-07-21, closed 2026-07-25.
+**Outcome:** 13 of 13 committed points delivered; stretch HOMI-33 not pulled; sprint goal partly met (see review notes).
 
 ## Committed stories
 
@@ -65,12 +66,67 @@ Still unverified on a real device: the magic-link `homi://` deep link (needs an 
 **2026-07-24, decision - first TestFlight build deferred:** Pranish chose not to cut an EAS/TestFlight build for sign-in alone; the first build waits until the app can create/join a house and split a cost, matching E6's own "expense loop only" definition of TestFlight v1.
 So HOMI-31 stays staging-verified only; no EAS build this step.
 
+**2026-07-25, HOMI-32 DONE - create a house or join by invite link:** PR #26 merged on green CI (`main` @ `e5b08ab`), staging auto-deployed and verified live.
+Three API additions: `GET /v1/houses` (live memberships - the client had no way to learn which house it was in), `GET /v1/invites/:token` (preview the house, inviter, and any bound placeholder without consuming a use), and `GET /j/:token`, the interstitial that `invites.service` had been minting URLs for since HOMI-8 with nothing serving that path.
+The HOMI-31 magic-link page moved onto a shared `lib/deep-link-page` renderer that both interstitials now use, and `INVITE_LINK_ORIGIN` falls back to `BETTER_AUTH_URL` instead of `https://homi.app`, which would have handed out links nothing answers.
+Mobile: an `apiFetch` that attaches the SecureStore cookie by hand (React Native shares no cookie jar with the auth client), a house gate that refetches on focus so the join deep link lands home with the new membership showing, a create-house form taking only the name, admin-only invite creation through the OS share sheet, and a `homi://join` route where accepting is an explicit tap.
+That last point is a deliberate safety choice: an invite link travels through group chats and can be opened by someone it was not meant for, and a bound invite additionally claims a placeholder's ledger history, so the house, inviter, and any "join as Sam" are named before the join button.
+Verified with 7 new integration tests (81 API tests green), then curl-verified end to end against a local API, then against live staging after merge: real OTP sign-in, `GET /v1/houses` empty then listing the created house as admin, an invite minted at the staging origin so `/j/` self-resolves, that URL serving the interstitial, and preview returning the house and inviter.
+
+**2026-07-25, new blocker - local iOS builds broken by Xcode 26:** `npx expo run:ios` fails with 15 Swift errors inside `node_modules/expo-modules-jsi`, which declares `weak let runtime`; Swift 6.2 (Xcode 26.0.1) rejects it as "'weak' must be a mutable variable".
+`expo-modules-jsi@57.0.4`, one patch above the installed version, carries the same code, so a patch bump is not the fix.
+This is an upstream Expo/Xcode incompatibility, not project code, and it appeared after HOMI-31 verified cleanly in the simulator on 2026-07-22.
+EAS cloud builds are unaffected because they use Expo's own Xcode, so TestFlight stays available; what is lost is fast local simulator verification, which is why HOMI-32 was verified by curl against real APIs instead.
+
 ## Next steps
 
-- **HOMI-32 (create a house / join by invite link, 3 pts)** is the next story - can proceed on placeholder styling now; backend already exists (HOMI-3 create-house, HOMI-8 invites).
 - **HOMI-33 (HOME tab) and HOMI-34 (add expense) need Pranish's visual direction first** - they are the face of the app and the under-15-seconds release gate, so the expense UI should not be built on placeholder styling.
-- **First TestFlight build** comes after the expense loop is wired (HOMI-32 -> 33 -> 34, and ideally HOMI-35 settle up): `cd apps/mobile && npx eas-cli build --platform ios --profile internal --auto-submit` (run in a real terminal; ASC API key already on EAS, so submit is non-interactive).
+  This is now the single blocker on the critical path: every remaining E6 story is UI work behind this decision.
+- **First TestFlight build** comes after the expense loop is wired (HOMI-33 -> 34, and ideally HOMI-35 settle up): `cd apps/mobile && npx eas-cli build --platform ios --profile internal --auto-submit` (run in a real terminal; ASC API key already on EAS, so submit is non-interactive).
+  That build is also the first exercise of both deep links, `homi://auth/verify` and `homi://join`, neither of which any device has run.
+- **Pre-tag code review** over `v0.6.0-sprint6..HEAD` is owed before the sprint tag, per the standing process and DoD item 1.
 
 ## Sprint review notes (filled at close)
 
+**2026-07-25, close.** All 13 committed points delivered: HOMI-30, HOMI-31, and HOMI-32 are done, merged, and green.
+The stretch story HOMI-33 was not pulled, correctly: it is blocked on visual direction, not on capacity.
+
+**The sprint goal is only partly met, and the gap is worth stating plainly.**
+The goal was "an Expo app installs from the TestFlight internal track, signs in with a magic link against the deployed staging API, and lands the user in a house they created or joined."
+HOMI is on TestFlight, but the binary sitting there is HOMI-30's scaffold.
+Sign-in and house create/join are both real and verified against live staging, and neither has ever run on a phone.
+That is a consequence of a deliberate call on 2026-07-24 - not shipping testers a sign-in screen with nothing behind it - which was the right product decision and still leaves the goal's end-to-end sentence untrue at close.
+
+What is verified, and how:
+- HOMI-30: the app installed from TestFlight on a real device (internal group "Team (Expo)").
+- HOMI-31: real-email OTP sign-in end to end against live staging, returning a session token.
+- HOMI-32: create, invite, preview, and join verified by curl against live staging after merge; the accept half of the second-user path was exercised locally and by integration tests rather than on staging, to avoid burning a second real inbox.
+- Test suites at close: 34 unit, 81 API integration, plus the worker suite, all green.
+
+What remains unverified, and why it matters:
+- Both deep links, `homi://auth/verify` and `homi://join`, have never run on a device.
+  They are the two places where the phone hands control back to the app, and they are exactly the kind of thing that works in every test and fails on the handset.
+  The next EAS build is the first honest test of either.
+- The Xcode 26 breakage removed the cheap way to catch that class of bug mid-story.
+
+Carried debt, unchanged from Sprint 6: DMARC on contact.homiapp.app, the Upstash staging/prod Redis split, and the Dockerfile nested-`node_modules` band-aid.
+New debt: a throwaway house on staging owned by a plus-aliased test account, and the Expo/Xcode incompatibility, which is upstream and can only be waited out.
+
 ## Retrospective
+
+**Staging-first kept paying.** The Sprint 7 rule of no local-only prototypes meant that within minutes of each merge there was a real deployed API to point at, and that is what saved HOMI-32 when the simulator route disappeared.
+A curl walk through sign-in, create, invite, interstitial, preview, and join is not as good as tapping through the app, but it is a genuine end-to-end proof, and it existed only because the API was already deployed and reachable.
+
+**Two of the three hardest problems this sprint were toolchain, not code.**
+The better-auth zod dedupe in HOMI-31 and the Xcode 26 Swift change in HOMI-32 both cost real time, both were invisible until something actually built or booted, and neither had anything to do with the story being written.
+The mitigation that worked was pinning exact versions and then verifying the pin survived every subsequent install; the mitigation that did not exist was any signal that the host toolchain had moved under us.
+
+**Scoping a sprint goal around an artifact we might choose not to cut was a planning error.**
+"Installs from TestFlight" reads as a deliverable but is really a release decision, and when the right call turned out to be "not yet", the goal became unmeetable through no fault of the work.
+A goal phrased around capability - "sign-in and house membership work against the deployed API" - would have been fully met and would have described the same sprint.
+Worth applying to Sprint 8: state the goal in terms of what the software can do, and treat shipping to testers as a separate, explicit decision.
+
+**The visual-direction gate was predicted on day one and still became the blocker.**
+The Sprint 7 notes said Pranish owes visual direction before HOMI-33/34.
+That was correct and it was never resolved during the sprint, so the sprint ends with every remaining E6 story queued behind one decision.
+A dependency named at planning time is not managed just by being named.
