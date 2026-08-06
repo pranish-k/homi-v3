@@ -44,16 +44,21 @@ export function renderDeepLinkPage(page: DeepLinkPage, token: string): string {
 <meta name="referrer" content="no-referrer">
 <title>${page.title}</title>
 <style>
+  /* Calm Ledger (docs/design/DESIGN_DIRECTION.md): this page sits in the
+     middle of sign-in and join, so it uses the app's own tokens. The
+     primary action is ink rather than a hue, which is why the old
+     #208AEF accent is gone from here too. */
   body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
-         font-family: -apple-system, system-ui, sans-serif; background: #ffffff; color: #111111; }
+         font-family: -apple-system, system-ui, sans-serif; background: #FFFFFF; color: #111113; }
   main { text-align: center; padding: 24px; }
   h1 { font-size: 28px; margin: 0 0 8px; }
-  p { font-size: 15px; color: #555555; margin: 0 0 24px; }
-  a.open { display: inline-block; padding: 14px 28px; border-radius: 10px; background: #208AEF;
-           color: #ffffff; font-size: 17px; font-weight: 600; text-decoration: none; }
+  p { font-size: 16px; color: #6B6B73; margin: 0 0 24px; }
+  a.open { display: inline-block; padding: 14px 28px; border-radius: 12px; background: #111113;
+           color: #FFFFFF; font-size: 14px; font-weight: 500; text-decoration: none; }
   @media (prefers-color-scheme: dark) {
-    body { background: #000000; color: #ffffff; }
-    p { color: #aaaaaa; }
+    body { background: #0B0B0C; color: #F5F5F7; }
+    p { color: #A0A0A8; }
+    a.open { background: #F5F5F7; color: #0B0B0C; }
   }
 </style>
 </head>

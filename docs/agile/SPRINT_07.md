@@ -84,7 +84,37 @@ EAS cloud builds are unaffected because they use Expo's own Xcode, so TestFlight
   This is now the single blocker on the critical path: every remaining E6 story is UI work behind this decision.
 - **First TestFlight build** comes after the expense loop is wired (HOMI-33 -> 34, and ideally HOMI-35 settle up): `cd apps/mobile && npx eas-cli build --platform ios --profile internal --auto-submit` (run in a real terminal; ASC API key already on EAS, so submit is non-interactive).
   That build is also the first exercise of both deep links, `homi://auth/verify` and `homi://join`, neither of which any device has run.
-- **Pre-tag code review** over `v0.6.0-sprint6..HEAD` is owed before the sprint tag, per the standing process and DoD item 1.
+- **Pre-tag code review** over `v0.6.0-sprint6..HEAD` is owed before the sprint tag, per the standing process and DoD item 1. Done 2026-08-05, see the section below.
+
+**2026-08-05, HOMI-36 - visual direction decided and built (PR #28 merged, `main` @ `78faf4e`):** the blocker named at planning time is resolved.
+Direction is **Calm Ledger**: typography-led, near-neutral, colour carries meaning and never decoration (green owed to you, red you owe, everything else greyscale), brand is ink rather than a hue, no shadows, system font with Dynamic Type.
+Recorded in `docs/design/DESIGN_DIRECTION.md` (new `docs/design/`) and as decision row D15 in `HOMI_V3.md`; the doc also specifies the HOME and add-expense layouts so HOMI-33/34 start with no open questions.
+`apps/mobile/src/ui/` became a real system - semantic light/dark palettes, a type scale, 4pt spacing, one `ThemeProvider` resolving the scheme once, and ten primitives (Screen, Text, Button, Input, Card, Row, Money, SectionHeader, EmptyState, Loading) replacing the markup every screen hand-rolled.
+All five screens retrofitted with behaviour unchanged; `src/ui/theme.ts` deleted and no hex literal survives outside `tokens.ts`; `Screen` is the first thing in the app to apply safe-area insets.
+Ionicons is decided but deliberately not installed - the app renders no icons until the tab bar in HOMI-33.
+Splash and adaptive-icon config fixed (off the placeholder blue, dark variant added, `imageWidth` corrected); real artwork is still owed and is a prerequisite for the first outside-tester build.
+Not verified: dark mode and on-device rendering, since Xcode 26 still blocks local iOS builds - a static web export prerendering all five routes was the substitute.
+
+## Pre-tag code review (2026-08-05)
+
+Owed per DoD item 1 and the standing process, over `v0.6.0-sprint6..main` (10 commits: HOMI-30/31/32/36 plus sprint docs).
+Focus was the new unauthenticated and authz surface, since this range is what a sprint tag would deploy to production for the first time.
+
+Four findings, all four fixed:
+
+1. **`apiFetch` surfaced raw parser errors** (`apps/mobile/src/api/client.ts`). `JSON.parse` on the response body was unguarded, but Cloud Run and the load balancer answer with HTML on 502/503 and on a failed cold start. The `SyntaxError` escaped `apiFetch` and screens render `err.message` directly, so a user would have seen "Unexpected token <..." as app copy - precisely when something was already wrong. Now caught and mapped to the normal error message.
+2. **The deep-link interstitial still used the retired accent** (`apps/api/src/lib/deep-link-page.ts`). HOMI-36 removed `#208AEF` from the app, but this page sits in the middle of both sign-in and join and still rendered the old blue button. Moved onto the Calm Ledger tokens, including a dark-scheme variant.
+3. **Dead 429 branch on OTP verify** (`apps/mobile/src/auth/SignInScreen.tsx`). Better Auth's `emailOTP` allows 3 wrong codes (`allowedAttempts` default), then deletes the verification and answers **403** `TOO_MANY_ATTEMPTS`. Our `signInEmailRateLimit` covers only the two send paths, so 429 never occurs on verify and the exhausted-attempts case fell through to the generic "wrong or expired" message. Now matched on 403.
+4. **`previewInvite` promised a join that `acceptInvite` would reject** (`apps/api/src/houses/invites.service.ts`). An admin can mint two invites for the same placeholder while it is unclaimed; once one is accepted the other is dead, but preview still returned "you'll join as Sam". Preview now checks `claimedBy` and returns the same "no longer valid" error. Regression test added in `house-join.integration.test.ts`.
+
+Checked and found sound, worth recording so the next review does not re-derive it:
+- OTP brute force is bounded. 6-digit code, 3 wrong attempts per issued code (verification row deleted), and sends capped at 3 per inbox per 15 minutes under one shared budget across both channels - so roughly 9 guesses per 15 minutes against a 10^6 space.
+- The interstitials cannot be injected into. Tokens are validated against `/^[A-Za-z0-9._~-]{1,256}$/` before rendering, and every other value on the page is a static constant.
+- The interstitials leak nothing. `Cache-Control: no-store`, `<meta name="referrer" content="no-referrer">`, no external assets, and the join page deliberately names no house or inviter, because an invite link travels through group chats.
+- `requestIp` keys on the **last** `x-forwarded-for` entry, which is correct for Cloud Run, where the front end appends the real client IP; keying on the first would let an attacker mint a fresh budget per request.
+- Invite accept remains a single atomic transaction with the placeholder row locked `FOR UPDATE`, so concurrent accepts cannot overshoot `max_uses` or double-claim.
+
+Suite at review close: 34 unit, 82 API integration (81 plus the new regression test), all green, plus typecheck and lint.
 
 ## Sprint review notes (filled at close)
 

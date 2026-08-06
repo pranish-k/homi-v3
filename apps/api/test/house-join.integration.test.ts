@@ -129,6 +129,29 @@ describe('create a house / join by invite link (HOMI-32)', () => {
     expect(preview.body).toMatchObject({ houseName: 'Maple Street', placeholderName: 'Sam' });
   });
 
+  it('rejects a preview of a claim invite whose placeholder is already claimed', async () => {
+    // Two invites can be minted for the same placeholder while it is
+    // unclaimed; accepting one kills the other, and the preview has to
+    // say so rather than promising a join that acceptInvite will reject.
+    const placeholder = await request(http)
+      .post(`/v1/houses/${houseId}/members/placeholders`)
+      .set('Cookie', ana.cookie)
+      .send({ name: 'Sam' })
+      .expect(201);
+    const first = await mintInvite(placeholder.body.userId);
+    const second = await mintInvite(placeholder.body.userId);
+
+    await request(http)
+      .post(`/v1/invites/${first.token}/accept`)
+      .set('Cookie', ben.cookie)
+      .expect(201);
+
+    await request(http)
+      .get(`/v1/invites/${second.token}`)
+      .set('Cookie', cat.cookie)
+      .expect(400);
+  });
+
   it('rejects a preview of an unknown or consumed invite', async () => {
     await request(http)
       .get(`/v1/invites/${randomUUID().replace(/-/g, '')}`)

@@ -111,7 +111,11 @@ export class InvitesService {
     let placeholderName: string | null = null;
     if (invite.placeholderUserId !== null) {
       const [placeholder] = await this.db
-        .select({ name: schema.users.name, displayName: schema.houseMembers.displayName })
+        .select({
+          name: schema.users.name,
+          displayName: schema.houseMembers.displayName,
+          claimedBy: schema.houseMembers.claimedBy,
+        })
         .from(schema.houseMembers)
         .innerJoin(schema.users, eq(schema.users.id, schema.houseMembers.userId))
         .where(
@@ -120,7 +124,14 @@ export class InvitesService {
             eq(schema.houseMembers.userId, invite.placeholderUserId),
           ),
         );
-      placeholderName = placeholder ? (placeholder.displayName ?? placeholder.name) : null;
+      // An admin can mint two invites for the same placeholder while it is
+      // still unclaimed; once one is accepted the other is dead, because
+      // acceptInvite rejects an already-claimed placeholder. Say so here
+      // rather than showing "you'll join as Sam" and failing on the tap.
+      if (!placeholder || placeholder.claimedBy !== null) {
+        throw new BadRequestException('This invite link is no longer valid');
+      }
+      placeholderName = placeholder.displayName ?? placeholder.name;
     }
 
     return {
