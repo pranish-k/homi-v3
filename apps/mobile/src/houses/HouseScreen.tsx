@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { ActivityIndicator, Pressable, Share, Text, View, useColorScheme } from 'react-native';
+import { Share } from 'react-native';
 
 import { authClient } from '@/auth/client';
-import { shared } from '@/ui/theme';
+import { Button, Row, Screen, Text } from '@/ui/components';
 import { createInvite, type HouseSummary } from './api';
 
 /**
@@ -11,7 +11,6 @@ import { createInvite, type HouseSummary } from './api';
  * (HOMI-33), which replaces this screen.
  */
 export default function HouseScreen({ house }: { house: HouseSummary }) {
-  const dark = useColorScheme() === 'dark';
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>();
 
@@ -34,30 +33,21 @@ export default function HouseScreen({ house }: { house: HouseSummary }) {
   };
 
   return (
-    <View style={[shared.screen, dark && shared.screenDark]}>
-      <Text style={[shared.title, dark && shared.textDark]}>{house.name}</Text>
-      <Text style={shared.detail}>
-        {house.role === 'admin' ? 'You are an admin' : 'You are a member'} · {house.currency}
-      </Text>
-      {error !== undefined && <Text style={shared.error}>{error}</Text>}
+    <Screen scroll>
+      <Text variant="title">{house.name}</Text>
+      <Row label="Your role" value={house.role === 'admin' ? 'Admin' : 'Member'} />
+      <Row label="Currency" value={house.currency} divider={false} />
+      {error !== undefined && (
+        <Text variant="caption" tone="negative">
+          {error}
+        </Text>
+      )}
       {/* Only admins can mint invites server-side (HOMI-8), so members
           are not offered a button that would 403. */}
       {house.role === 'admin' && (
-        <Pressable
-          onPress={invite}
-          disabled={busy}
-          style={[shared.button, busy && shared.buttonDisabled]}
-        >
-          {busy ? (
-            <ActivityIndicator color="#ffffff" />
-          ) : (
-            <Text style={shared.buttonLabel}>Invite a roommate</Text>
-          )}
-        </Pressable>
+        <Button label="Invite a roommate" onPress={invite} loading={busy} />
       )}
-      <Pressable onPress={() => void authClient.signOut()} style={shared.secondaryButton}>
-        <Text style={shared.secondaryLabel}>Sign out</Text>
-      </Pressable>
-    </View>
+      <Button label="Sign out" variant="secondary" onPress={() => void authClient.signOut()} />
+    </Screen>
   );
 }

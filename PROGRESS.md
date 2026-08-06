@@ -1,17 +1,17 @@
 # HOMI v3 Progress
 
-**Last updated:** 2026-07-21 (Sprint 7 planned and started: the first TestFlight client sprint).
+**Last updated:** 2026-08-05 (Sprint 7 closed 13/13 points; visual direction decided, unblocking HOMI-33/34/35).
 **Phase:** R1 Money Core (weeks 1-12, committed scope).
 **Repo:** https://github.com/pranish-k/homi-v3 · latest tag `v0.6.0-sprint6`.
 Full detail per sprint lives in `docs/agile/SPRINT_*.md`; infrastructure reference in `docs/infra/GCP.md`.
 
-## Sprint 7 (started 2026-07-21) - HOMI gets onto a phone
+## Sprint 7 (2026-07-21 to 2026-08-04, closed) - HOMI gets onto a phone
 
 - Goal: an Expo app installs from the TestFlight internal track, signs in with a magic link against the deployed staging API, and lands in a house.
 - Committed (13 points): HOMI-30 (Expo scaffold + EAS + TestFlight internal track, 5), HOMI-31 (magic-link sign-in with persistent cookie session, 5), HOMI-32 (create or join a house via invite link, 3); stretch HOMI-33 (HOME tab from the snapshot endpoint, 5).
 - Decisions (2026-07-21): bundle id `app.homiapp.mobile`; client at `apps/mobile` (Expo + expo-router, TypeScript); dev builds hit staging by default via `EXPO_PUBLIC_API_URL`-overridable config.
 - HOMI-30 split: Half A (workspace scaffold, /readyz boot screen, CI wiring) is agent work; Half B (EAS project, Apple signing, TestFlight upload) needs Pranish's logins.
-- UI direction: placeholder styling for the committed stories; Pranish gives visual direction before HOMI-33/34.
+- UI direction: RESOLVED 2026-08-05 - Calm Ledger, recorded in `docs/design/DESIGN_DIRECTION.md` and implemented as the design system in HOMI-36. HOMI-33/34/35 are no longer blocked.
 - Full plan in `docs/agile/SPRINT_07.md`.
 
 ## Sprint 6 (2026-07-19 to 2026-07-21, closed `v0.6.0-sprint6`) - all committed stories done, prod live
