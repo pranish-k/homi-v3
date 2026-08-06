@@ -65,10 +65,13 @@ export default function SignInScreen({ prompt }: { prompt?: string } = {}) {
       ...(trimmedName ? { name: trimmedName } : {}),
     });
     if (err) {
-      // stay on the code screen so the user can retry or resend
+      // stay on the code screen so the user can retry or resend.
+      // Better Auth allows 3 wrong codes, then deletes the verification
+      // and answers 403 TOO_MANY_ATTEMPTS - not 429, which only the send
+      // paths produce - so the exhausted case is matched on that.
       setPhase({ state: 'code' });
       setError(
-        err.status === 429
+        err.status === 403
           ? 'Too many attempts. Request a new code and try again.'
           : 'That code is wrong or expired. Check it or request a new one.',
       );

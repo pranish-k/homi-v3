@@ -50,7 +50,25 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
   }
 
   const text = await response.text();
-  const body: unknown = text.length > 0 ? JSON.parse(text) : null;
+  // Not every response on this path is ours: Cloud Run and the load
+  // balancer answer with HTML on 502/503 and on a failed cold start, so
+  // JSON.parse throwing here is a real case, not a defensive one. Letting
+  // the SyntaxError escape would put the parser's own message ("Unexpected
+  // token <...") on screen as user-facing copy, exactly when something is
+  // already going wrong.
+  let body: unknown = null;
+  if (text.length > 0) {
+    try {
+      body = JSON.parse(text);
+    } catch {
+      throw new ApiError(
+        response.status,
+        response.ok
+          ? 'Something went wrong. Try again.'
+          : messageFrom(null, response.status),
+      );
+    }
+  }
   if (!response.ok) throw new ApiError(response.status, messageFrom(body, response.status));
   return body as T;
 }
