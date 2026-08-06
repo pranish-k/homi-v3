@@ -1,16 +1,8 @@
 import { useState } from 'react';
-import {
-  ActivityIndicator,
-  Pressable,
-  Text,
-  TextInput,
-  View,
-  useColorScheme,
-} from 'react-native';
 import * as Localization from 'expo-localization';
 
 import { authClient } from '@/auth/client';
-import { shared, colors } from '@/ui/theme';
+import { Button, Input, Screen, Text } from '@/ui/components';
 import { createHouse } from './api';
 
 /**
@@ -23,7 +15,6 @@ import { createHouse } from './api';
  * (spec 4.3), so the joiner taps the link and lands on /join.
  */
 export default function NoHouseScreen({ onCreated }: { onCreated: () => void }) {
-  const dark = useColorScheme() === 'dark';
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>();
@@ -47,42 +38,30 @@ export default function NoHouseScreen({ onCreated }: { onCreated: () => void }) 
   };
 
   return (
-    <View style={[shared.screen, dark && shared.screenDark]}>
-      <Text style={[shared.title, dark && shared.textDark]}>Start a house</Text>
-      <Text style={shared.detail}>
+    <Screen center>
+      <Text variant="title" center>
+        Start a house
+      </Text>
+      <Text variant="body" tone="secondary" center>
         Name it something your roommates will recognise. You can invite them next.
       </Text>
-      <TextInput
+      <Input
         value={name}
+        error={error}
         onChangeText={setName}
         placeholder="Maple Street"
-        placeholderTextColor={colors.muted}
         autoCapitalize="words"
         autoCorrect={false}
         maxLength={100}
         returnKeyType="go"
         onSubmitEditing={submit}
         editable={!busy}
-        style={[shared.input, dark && shared.inputDark]}
       />
-      {error !== undefined && <Text style={shared.error}>{error}</Text>}
-      <Pressable
-        onPress={submit}
-        disabled={trimmed.length === 0 || busy}
-        style={[shared.button, (trimmed.length === 0 || busy) && shared.buttonDisabled]}
-      >
-        {busy ? (
-          <ActivityIndicator color="#ffffff" />
-        ) : (
-          <Text style={shared.buttonLabel}>Create house</Text>
-        )}
-      </Pressable>
-      <Text style={shared.detail}>
+      <Button label="Create house" onPress={submit} loading={busy} disabled={trimmed.length === 0} />
+      <Text variant="caption" tone="tertiary" center>
         Joining someone else&apos;s house? Tap the invite link they sent you.
       </Text>
-      <Pressable onPress={() => void authClient.signOut()} style={shared.secondaryButton}>
-        <Text style={shared.secondaryLabel}>Sign out</Text>
-      </Pressable>
-    </View>
+      <Button label="Sign out" variant="secondary" onPress={() => void authClient.signOut()} />
+    </Screen>
   );
 }

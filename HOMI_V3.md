@@ -560,6 +560,7 @@ Settled July 2026 after auditing this spec against its own failure modes.
 | D12 | Premium structure | **Per-user HOMI+ plus a one-time move-out report purchase**; never per-household subscription | Household billing has an unsolved who-pays problem |
 | D13 | Offline | **Read-only offline (cache) + outbox for queued writes; no full offline sync in v3** | Conflict resolution against a server-owned ledger is a project of its own; see H1/H6 |
 | D14 | v2 code | **Salvage UI components and design tokens only**; backend and data layer start fresh | v2 is a prototype; its architecture is the thing being replaced |
+| D15 | Visual direction (2026-08-05) | **Calm Ledger**: typography-led, near-neutral, colour carries meaning only (green owed to you, red you owe, everything else greyscale); brand is ink, not a hue; no shadows; system font with Dynamic Type; see `docs/design/DESIGN_DIRECTION.md` | A ledger earns trust by looking checkable, not exciting; spending colour on money direction is what makes the show-the-math drilldowns and the "zero balance-math bug reports" gate legible. Supersedes D14's design-token half: no v2 tokens exist in this repo, so the system was specified fresh rather than salvaged |
 
 Risks we accept knowingly: chore features may still underperform (chore-app retention is historically poor; that is why they are R2, not R1), and the placeholder-invite mechanic needs live-beta validation of its framing before we lean on it for growth.
 

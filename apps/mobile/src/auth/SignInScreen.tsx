@@ -1,24 +1,13 @@
 import { useState } from 'react';
-import {
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  StyleSheet,
-  Text,
-  TextInput,
-  useColorScheme,
-  View,
-} from 'react-native';
 
 import { API_BASE } from '@/api/config';
 import { authClient } from '@/auth/client';
+import { Button, Input, Screen, Text } from '@/ui/components';
 
 // HOMI-31: two passwordless channels. The code is primary because it is
 // deep-link-free - the user types it in and the session lands on this
 // request, so sign-in can never be stranded in a browser. The magic link
 // stays as a one-tap secondary for when the homi:// bounce does work.
-// Placeholder styling until Pranish gives visual direction (pre-HOMI-33).
 type Phase =
   | { state: 'form' } // entering email, choosing a channel
   | { state: 'sendingCode' }
@@ -30,7 +19,6 @@ type Phase =
 // HOMI-32: the join flow renders this in place, so it can say why
 // sign-in is being asked for instead of dropping the user at a bare form.
 export default function SignInScreen({ prompt }: { prompt?: string } = {}) {
-  const dark = useColorScheme() === 'dark';
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
   const [otp, setOtp] = useState('');
@@ -113,18 +101,17 @@ export default function SignInScreen({ prompt }: { prompt?: string } = {}) {
   // Code entered by the user (primary path).
   if (phase.state === 'code' || phase.state === 'verifying') {
     return (
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={[styles.container, dark && styles.containerDark]}
-      >
-        <Text style={[styles.title, dark && styles.textDark]}>Enter your code</Text>
-        <Text style={[styles.body, dark && styles.textDark]}>
+      <Screen center>
+        <Text variant="title" center>
+          Enter your code
+        </Text>
+        <Text variant="body" tone="secondary" center>
           We sent a 6-digit code to {trimmedEmail}.
         </Text>
-        <TextInput
-          style={[styles.input, styles.otpInput, dark && styles.inputDark]}
+        <Input
+          code
+          error={error}
           placeholder="123456"
-          placeholderTextColor="#888888"
           value={otp}
           onChangeText={(t) => setOtp(t.replace(/\D/g, '').slice(0, 6))}
           keyboardType="number-pad"
@@ -134,57 +121,49 @@ export default function SignInScreen({ prompt }: { prompt?: string } = {}) {
           autoFocus
           editable={phase.state !== 'verifying'}
         />
-        {error && <Text style={styles.error}>{error}</Text>}
-        <Pressable
-          onPress={verifyCode}
+        <Button
+          label="Verify and sign in"
+          onPress={() => void verifyCode()}
+          loading={phase.state === 'verifying'}
           disabled={!canVerify}
-          style={[styles.button, !canVerify && styles.buttonDisabled]}
-        >
-          {phase.state === 'verifying' ? (
-            <ActivityIndicator color="#ffffff" />
-          ) : (
-            <Text style={styles.buttonLabel}>Verify and sign in</Text>
-          )}
-        </Pressable>
-        <Pressable onPress={sendCode} disabled={busy} style={styles.secondary}>
-          <Text style={styles.secondaryLabel}>Resend code</Text>
-        </Pressable>
-        <Pressable onPress={restart} disabled={busy} style={styles.secondary}>
-          <Text style={styles.secondaryLabel}>Use a different email</Text>
-        </Pressable>
-      </KeyboardAvoidingView>
+        />
+        <Button
+          label="Resend code"
+          variant="secondary"
+          onPress={() => void sendCode()}
+          disabled={busy}
+        />
+        <Button label="Use a different email" variant="secondary" onPress={restart} disabled={busy} />
+      </Screen>
     );
   }
 
   // Magic link sent (secondary path).
   if (phase.state === 'linkSent') {
     return (
-      <View style={[styles.container, dark && styles.containerDark]}>
-        <Text style={[styles.title, dark && styles.textDark]}>Check your email</Text>
-        <Text style={[styles.body, dark && styles.textDark]}>
+      <Screen center>
+        <Text variant="title" center>
+          Check your email
+        </Text>
+        <Text variant="body" tone="secondary" center>
           We sent a sign-in link to {trimmedEmail}. Open it on this phone.
         </Text>
-        <Pressable onPress={restart} style={styles.secondary}>
-          <Text style={styles.secondaryLabel}>Use a different email</Text>
-        </Pressable>
-      </View>
+        <Button label="Use a different email" variant="secondary" onPress={restart} />
+      </Screen>
     );
   }
 
   // Email entry + channel choice.
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      style={[styles.container, dark && styles.containerDark]}
-    >
-      <Text style={[styles.title, dark && styles.textDark]}>HOMI</Text>
-      <Text style={[styles.body, dark && styles.textDark]}>
+    <Screen center>
+      <Text variant="display" center>
+        HOMI
+      </Text>
+      <Text variant="body" tone="secondary" center>
         {prompt ?? 'Sign in with your email. No password needed.'}
       </Text>
-      <TextInput
-        style={[styles.input, dark && styles.inputDark]}
+      <Input
         placeholder="you@example.com"
-        placeholderTextColor="#888888"
         value={email}
         onChangeText={setEmail}
         autoCapitalize="none"
@@ -193,116 +172,36 @@ export default function SignInScreen({ prompt }: { prompt?: string } = {}) {
         autoCorrect={false}
         editable={!busy}
       />
-      <TextInput
-        style={[styles.input, dark && styles.inputDark]}
+      <Input
         placeholder="Your name (first sign-in only)"
-        placeholderTextColor="#888888"
         value={name}
         onChangeText={setName}
         autoComplete="name"
         editable={!busy}
       />
-      {error && <Text style={styles.error}>{error}</Text>}
-      <Pressable
-        onPress={sendCode}
+      {/* A send failure is about the request, not either field, so it
+          sits on its own rather than hanging off the name input. */}
+      {error !== undefined && (
+        <Text variant="caption" tone="negative" center>
+          {error}
+        </Text>
+      )}
+      <Button
+        label="Email me a code"
+        onPress={() => void sendCode()}
+        loading={phase.state === 'sendingCode'}
         disabled={!validEmail || busy}
-        style={[styles.button, (!validEmail || busy) && styles.buttonDisabled]}
-      >
-        {phase.state === 'sendingCode' ? (
-          <ActivityIndicator color="#ffffff" />
-        ) : (
-          <Text style={styles.buttonLabel}>Email me a code</Text>
-        )}
-      </Pressable>
-      <Pressable onPress={sendLink} disabled={!validEmail || busy} style={styles.secondary}>
-        {phase.state === 'sendingLink' ? (
-          <ActivityIndicator color="#208AEF" />
-        ) : (
-          <Text style={[styles.secondaryLabel, (!validEmail || busy) && styles.buttonDisabled]}>
-            or send me a link instead
-          </Text>
-        )}
-      </Pressable>
-      <Text style={styles.url}>{API_BASE}</Text>
-    </KeyboardAvoidingView>
+      />
+      <Button
+        label="or send me a link instead"
+        variant="secondary"
+        onPress={() => void sendLink()}
+        loading={phase.state === 'sendingLink'}
+        disabled={!validEmail || busy}
+      />
+      <Text variant="caption" tone="tertiary" center>
+        {API_BASE}
+      </Text>
+    </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 12,
-    paddingHorizontal: 32,
-    backgroundColor: '#ffffff',
-  },
-  containerDark: {
-    backgroundColor: '#000000',
-  },
-  title: {
-    fontSize: 40,
-    fontWeight: '700',
-    color: '#111111',
-  },
-  body: {
-    fontSize: 15,
-    color: '#111111',
-    textAlign: 'center',
-  },
-  textDark: {
-    color: '#ffffff',
-  },
-  input: {
-    alignSelf: 'stretch',
-    borderWidth: 1,
-    borderColor: '#cccccc',
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 16,
-    color: '#111111',
-  },
-  otpInput: {
-    textAlign: 'center',
-    fontSize: 28,
-    letterSpacing: 8,
-  },
-  inputDark: {
-    borderColor: '#444444',
-    color: '#ffffff',
-  },
-  error: {
-    fontSize: 14,
-    color: '#d0342c',
-    textAlign: 'center',
-  },
-  button: {
-    alignSelf: 'stretch',
-    alignItems: 'center',
-    paddingVertical: 14,
-    borderRadius: 10,
-    backgroundColor: '#208AEF',
-  },
-  buttonDisabled: {
-    opacity: 0.4,
-  },
-  buttonLabel: {
-    color: '#ffffff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  secondary: {
-    paddingVertical: 10,
-  },
-  secondaryLabel: {
-    color: '#208AEF',
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  url: {
-    marginTop: 12,
-    fontSize: 12,
-    color: '#888888',
-  },
-});

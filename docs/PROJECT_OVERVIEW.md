@@ -158,11 +158,12 @@ Delivered across seven sprints (Sprint 1 through Sprint 7, 2026-07-07 to 2026-07
 ## 8. What is next
 
 **Immediate (finishing TestFlight v1, epic E6)**
+- HOMI-36: the design system implementing the Calm Ledger visual direction, which unblocked everything below it
 - HOMI-33: the HOME tab rendering balances, members, and the feed head from the snapshot endpoint, refreshed by realtime hints
 - HOMI-34: add an expense (equal or exact) in under 15 seconds, which is the R1 release gate
 - HOMI-35: settle up in one tap with Venmo, Zelle, and Cash App deep links
 - The first real TestFlight build of the full expense loop, which is also the first device test of both deep links (`homi://auth/verify` and `homi://join`)
-- Blocker on the critical path: visual direction for the HOME and add-expense screens, since every remaining story is UI work behind that decision
+- The long-standing blocker on this path, visual direction for the HOME and add-expense screens, was decided 2026-08-05 and is recorded in `docs/design/DESIGN_DIRECTION.md`
 
 **Remaining R1 backlog**
 - HOMI-18: private stale-debt nudges to debtors, so creditors never have to ask

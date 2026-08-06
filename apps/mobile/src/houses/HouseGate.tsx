@@ -1,8 +1,7 @@
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Pressable, Text, View, useColorScheme } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 
-import { shared, colors } from '@/ui/theme';
+import { EmptyState, Loading, Screen } from '@/ui/components';
 import { listHouses, type HouseSummary } from './api';
 import HouseScreen from './HouseScreen';
 import NoHouseScreen from './NoHouseScreen';
@@ -15,7 +14,6 @@ import NoHouseScreen from './NoHouseScreen';
  * store.
  */
 export default function HouseGate() {
-  const dark = useColorScheme() === 'dark';
   const [houses, setHouses] = useState<HouseSummary[] | undefined>();
   const [error, setError] = useState<string | undefined>();
 
@@ -30,20 +28,21 @@ export default function HouseGate() {
 
   if (error !== undefined) {
     return (
-      <View style={[shared.screen, dark && shared.screenDark]}>
-        <Text style={shared.error}>{error}</Text>
-        <Pressable onPress={load} style={shared.button}>
-          <Text style={shared.buttonLabel}>Try again</Text>
-        </Pressable>
-      </View>
+      <Screen center>
+        <EmptyState
+          title="Could not load your house"
+          body={error}
+          action={{ label: 'Try again', onPress: load }}
+        />
+      </Screen>
     );
   }
 
   if (houses === undefined) {
     return (
-      <View style={[shared.screen, dark && shared.screenDark]}>
-        <ActivityIndicator color={colors.accent} />
-      </View>
+      <Screen center>
+        <Loading />
+      </Screen>
     );
   }
 

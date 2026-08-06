@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, Text, View, useColorScheme } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 
 import SignInScreen from '@/auth/SignInScreen';
 import { authClient } from '@/auth/client';
-import { shared, colors } from '@/ui/theme';
+import { Button, Card, EmptyState, Loading, Screen, Text } from '@/ui/components';
 import { acceptInvite, previewInvite, type InvitePreview } from '@/houses/api';
 
 /**
@@ -20,7 +19,6 @@ import { acceptInvite, previewInvite, type InvitePreview } from '@/houses/api';
  * token survives the round trip and the join resumes on this screen.
  */
 export default function JoinScreen() {
-  const dark = useColorScheme() === 'dark';
   const { token } = useLocalSearchParams<{ token?: string }>();
   const { data: session, isPending } = authClient.useSession();
   const [preview, setPreview] = useState<InvitePreview | undefined>();
@@ -53,21 +51,21 @@ export default function JoinScreen() {
 
   if (error !== undefined) {
     return (
-      <View style={[shared.screen, dark && shared.screenDark]}>
-        <Text style={[shared.title, dark && shared.textDark]}>Invite problem</Text>
-        <Text style={shared.error}>{error}</Text>
-        <Pressable onPress={() => router.replace('/')} style={shared.button}>
-          <Text style={shared.buttonLabel}>Continue to HOMI</Text>
-        </Pressable>
-      </View>
+      <Screen center>
+        <EmptyState
+          title="Invite problem"
+          body={error}
+          action={{ label: 'Continue to HOMI', onPress: () => router.replace('/') }}
+        />
+      </Screen>
     );
   }
 
   if (isPending) {
     return (
-      <View style={[shared.screen, dark && shared.screenDark]}>
-        <ActivityIndicator color={colors.accent} />
-      </View>
+      <Screen center>
+        <Loading />
+      </Screen>
     );
   }
 
@@ -77,37 +75,31 @@ export default function JoinScreen() {
 
   if (preview === undefined) {
     return (
-      <View style={[shared.screen, dark && shared.screenDark]}>
-        <ActivityIndicator color={colors.accent} />
-        <Text style={shared.detail}>Checking your invite…</Text>
-      </View>
+      <Screen center>
+        <Loading message="Checking your invite…" />
+      </Screen>
     );
   }
 
   return (
-    <View style={[shared.screen, dark && shared.screenDark]}>
-      <Text style={[shared.title, dark && shared.textDark]}>{preview.houseName}</Text>
-      <Text style={shared.detail}>{preview.invitedByName} invited you to this house.</Text>
+    <Screen center>
+      <Text variant="title" center>
+        {preview.houseName}
+      </Text>
+      <Text variant="body" tone="secondary" center>
+        {preview.invitedByName} invited you to this house.
+      </Text>
       {preview.placeholderName !== null && (
-        <Text style={[shared.body, dark && shared.textDark]}>
-          You&apos;ll join as {preview.placeholderName} and pick up the expenses already logged
-          under that name. Every line stays yours to review.
-        </Text>
+        <Card>
+          <Text variant="bodyStrong">You&apos;ll join as {preview.placeholderName}</Text>
+          <Text variant="body" tone="secondary">
+            You&apos;ll pick up the expenses already logged under that name. Every line stays yours
+            to review.
+          </Text>
+        </Card>
       )}
-      <Pressable
-        onPress={join}
-        disabled={joining}
-        style={[shared.button, joining && shared.buttonDisabled]}
-      >
-        {joining ? (
-          <ActivityIndicator color="#ffffff" />
-        ) : (
-          <Text style={shared.buttonLabel}>Join {preview.houseName}</Text>
-        )}
-      </Pressable>
-      <Pressable onPress={() => router.replace('/')} style={shared.secondaryButton}>
-        <Text style={shared.secondaryLabel}>Not now</Text>
-      </Pressable>
-    </View>
+      <Button label={`Join ${preview.houseName}`} onPress={join} loading={joining} />
+      <Button label="Not now" variant="secondary" onPress={() => router.replace('/')} />
+    </Screen>
   );
 }
