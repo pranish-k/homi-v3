@@ -1,11 +1,20 @@
 # HOMI v3 Progress
 
-**Last updated:** 2026-08-05 (Sprint 7 closed 13/13 points; visual direction decided, unblocking HOMI-33/34/35).
+**Last updated:** 2026-08-07 (Sprint 7 closed and tagged, prod deploy verified; Sprint 8 planned and started).
 **Phase:** R1 Money Core (weeks 1-12, committed scope).
-**Repo:** https://github.com/pranish-k/homi-v3 · latest tag `v0.6.0-sprint6`.
+**Repo:** https://github.com/pranish-k/homi-v3 · latest tag `v0.7.0-sprint7`.
 Full detail per sprint lives in `docs/agile/SPRINT_*.md`; infrastructure reference in `docs/infra/GCP.md`.
 
-## Sprint 7 (2026-07-21 to 2026-08-04, closed) - HOMI gets onto a phone
+## Sprint 8 (started 2026-08-07) - the expense loop
+
+- Goal, phrased as capability: a roommate can see what they owe, add an expense, and settle up, from the phone against the deployed API.
+- Committed (13 points): HOMI-33 (HOME tab from the snapshot endpoint, 5), HOMI-34 (add an expense in under 15 seconds, the R1 release gate, 5), HOMI-35 (settle up with Venmo/Zelle/Cash App deep links, 3); stretch HOMI-18 (private stale-debt nudges, 3).
+- All three committed stories are client-only: `GET /snapshot`, `POST /expenses`, and `POST /payments` already exist and are deployed. No migration expected.
+- Two things to get right early: money mutations need an `Idempotency-Key` UUID reused across retries (the mobile client does not send one yet), and the design system has never been seen in dark mode or on a device, so that pass comes at the start of HOMI-33.
+- Cutting the TestFlight build is an explicit separate decision this sprint, not part of the goal (Sprint 7 retro lesson).
+- Full plan in `docs/agile/SPRINT_08.md`.
+
+## Sprint 7 (2026-07-21 to 2026-08-04, closed `v0.7.0-sprint7`, prod live) - HOMI gets onto a phone
 
 - Goal: an Expo app installs from the TestFlight internal track, signs in with a magic link against the deployed staging API, and lands in a house.
 - Committed (13 points): HOMI-30 (Expo scaffold + EAS + TestFlight internal track, 5), HOMI-31 (magic-link sign-in with persistent cookie session, 5), HOMI-32 (create or join a house via invite link, 3); stretch HOMI-33 (HOME tab from the snapshot endpoint, 5).

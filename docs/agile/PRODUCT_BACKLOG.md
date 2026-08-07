@@ -72,10 +72,10 @@ Visual direction decided 2026-08-05: Calm Ledger, recorded in docs/design/DESIGN
 | HOMI-30 | As a developer, an Expo app scaffold builds via EAS and installs from the TestFlight internal track | 5 | Done (Sprint 7) |
 | HOMI-31 | As a user, I sign in from my phone with a magic link and stay signed in (cookie session against the deployed API) | 5 | Done (Sprint 7) |
 | HOMI-32 | As a user, I create a house or join one by tapping an invite link | 3 | Done (Sprint 7) |
-| HOMI-36 | As a developer, the mobile app has a real design system (tokens, primitives, light and dark) so HOME and add-expense are built on the agreed visual direction | 3 | Backlog |
-| HOMI-33 | As a member, the HOME tab shows balances, members, and the feed head from the snapshot endpoint, refreshed by realtime hints | 5 | Backlog |
-| HOMI-34 | As a member, I add an expense (equal or exact split) in under 15 seconds (the R1 release gate) | 5 | Backlog |
-| HOMI-35 | As a member, I settle up: record a payment in one tap, with Venmo/Zelle/Cash App deep links | 3 | Backlog |
+| HOMI-36 | As a developer, the mobile app has a real design system (tokens, primitives, light and dark) so HOME and add-expense are built on the agreed visual direction | 3 | Done (Sprint 7) |
+| HOMI-33 | As a member, the HOME tab shows balances, members, and the feed head from the snapshot endpoint, refreshed by realtime hints | 5 | In Sprint 8 |
+| HOMI-34 | As a member, I add an expense (equal or exact split) in under 15 seconds (the R1 release gate) | 5 | In Sprint 8 |
+| HOMI-35 | As a member, I settle up: record a payment in one tap, with Venmo/Zelle/Cash App deep links | 3 | In Sprint 8 |
 
 ## Release gate (R1 to R2)
 
