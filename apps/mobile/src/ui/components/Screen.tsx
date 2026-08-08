@@ -1,5 +1,12 @@
-import type { ReactNode } from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, View } from 'react-native';
+import type { ReactElement, ReactNode } from 'react';
+import {
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  View,
+  type RefreshControlProps,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useTheme } from '../ThemeProvider';
@@ -12,6 +19,8 @@ export type ScreenProps = {
   /** Content that can outgrow the viewport (lists, long copy). */
   scroll?: boolean;
   gap?: number;
+  /** Pull-to-refresh. Requires `scroll`, since Screen owns the ScrollView. */
+  refreshControl?: ReactElement<RefreshControlProps>;
 };
 
 /**
@@ -25,6 +34,7 @@ export default function Screen({
   center = false,
   scroll = false,
   gap = spacing.md,
+  refreshControl,
 }: ScreenProps) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
@@ -50,6 +60,7 @@ export default function Screen({
           contentContainerStyle={[content, padding, center && styles.grow]}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
+          refreshControl={refreshControl}
         >
           {children}
         </ScrollView>
