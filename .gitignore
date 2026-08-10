@@ -19,3 +19,9 @@ coverage/
 
 # Local data volumes
 .data/
+
+# Expo artifacts if a command is run from the repo root instead of
+# apps/mobile: it treats the root as the project and drops these here.
+# Root-anchored so the real apps/*/tsconfig.json stay tracked.
+/.expo/
+/tsconfig.json
