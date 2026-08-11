@@ -6,9 +6,29 @@
   "build": {
     "internal": {
       "autoIncrement": true
+    },
+    "development": {
+      "developmentClient": true,
+      "autoIncrement": true
+    },
+    "development-simulator": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "ios": {
+        "simulator": true
+      }
     }
   },
   "submit": {
-    "internal": {}
+    "internal": {
+      "ios": {
+        "ascAppId": "6793742099"
+      }
+    },
+    "development": {
+      "ios": {
+        "ascAppId": "6793742099"
+      }
+    }
   }
 }

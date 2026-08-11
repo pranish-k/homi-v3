@@ -35,11 +35,23 @@ export default function Button({
 
   // The destructive fill stays dark in both schemes, so its label is a
   // fixed light tone rather than the scheme-flipping onInk.
-  const style = {
+  const active = {
     primary: { filled: true, background: colors.ink, label: colors.onInk },
     destructive: { filled: true, background: colors.negative, label: palettes.light.onInk },
     secondary: { filled: false, background: 'transparent', label: colors.link },
   }[variant];
+
+  /**
+   * A disabled filled button recedes rather than dimming. Fading ink to
+   * 40% lands on mid-grey, which in dark mode made the one control you
+   * cannot use the loudest thing on the screen - backwards, and against
+   * the Calm Ledger rule that emphasis has to mean something. A surface
+   * fill with tertiary text reads as unavailable in both schemes.
+   */
+  const style =
+    inactive && active.filled
+      ? { ...active, background: colors.surface, label: colors.textTertiary }
+      : active;
 
   return (
     <Pressable
@@ -51,7 +63,9 @@ export default function Button({
         style.filled ? styles.filled : styles.text,
         { backgroundColor: style.background },
         pressed && !inactive && styles.pressed,
-        inactive && styles.inactive,
+        // Filled buttons carry their disabled state in the palette above;
+        // only the text-only variant still needs dimming.
+        inactive && !style.filled && styles.inactive,
       ]}
     >
       {loading ? (

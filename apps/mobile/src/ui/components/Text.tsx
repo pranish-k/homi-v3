@@ -18,6 +18,12 @@ export type TextProps = RNTextProps & {
   center?: boolean;
   /** Column-aligned digits. Money sets this; so should any other amount. */
   tabular?: boolean;
+  /**
+   * Overrides the variant's Dynamic Type cap. Needed where a smaller
+   * variant sits next to a capped larger one: without a cap of its own it
+   * grows past the thing it is subordinate to and inverts the hierarchy.
+   */
+  maxFontSizeMultiplier?: number;
 };
 
 /**
@@ -29,11 +35,13 @@ export default function Text({
   tone = 'primary',
   center = false,
   tabular = false,
+  maxFontSizeMultiplier,
   style,
   ...rest
 }: TextProps) {
   const { colors } = useTheme();
-  const { maxFontSizeMultiplier, ...typeStyle } = typography[variant];
+  const { maxFontSizeMultiplier: variantCap, ...typeStyle } = typography[variant];
+  const cap = maxFontSizeMultiplier ?? variantCap;
 
   const color = {
     primary: colors.textPrimary,
@@ -47,7 +55,7 @@ export default function Text({
 
   return (
     <RNText
-      maxFontSizeMultiplier={maxFontSizeMultiplier}
+      maxFontSizeMultiplier={cap}
       style={[
         typeStyle,
         { color },

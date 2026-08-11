@@ -1,9 +1,8 @@
 import { useCallback, useState } from 'react';
-import { useFocusEffect } from 'expo-router';
+import { Redirect, useFocusEffect } from 'expo-router';
 
 import { EmptyState, Loading, Screen } from '@/ui/components';
 import { listHouses, type HouseSummary } from './api';
-import HouseScreen from './HouseScreen';
 import NoHouseScreen from './NoHouseScreen';
 
 /**
@@ -12,6 +11,10 @@ import NoHouseScreen from './NoHouseScreen';
  * makes the join deep link work: /join accepts the invite and routes
  * back here, and the new membership is picked up without any shared
  * store.
+ *
+ * HOMI-33: a house now hands off to the tab navigator rather than
+ * rendering a screen inline. The tabs re-resolve the house themselves,
+ * because a layout has to own the value it provides to its children.
  */
 export default function HouseGate() {
   const [houses, setHouses] = useState<HouseSummary[] | undefined>();
@@ -48,6 +51,5 @@ export default function HouseGate() {
 
   // One house is the whole of v1; multi-house switching is a later
   // build, so the first membership is the house.
-  const house = houses[0];
-  return house ? <HouseScreen house={house} /> : <NoHouseScreen onCreated={load} />;
+  return houses[0] ? <Redirect href="/home" /> : <NoHouseScreen onCreated={load} />;
 }
