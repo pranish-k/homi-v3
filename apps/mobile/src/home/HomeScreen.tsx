@@ -125,10 +125,16 @@ export default function HomeScreen() {
       )}
 
       <View style={styles.balance}>
-        <Text variant="body" tone="secondary">
+        {/* Capped so the label cannot outgrow the amount it introduces at
+            the largest Dynamic Type sizes and invert the hierarchy. */}
+        <Text variant="body" tone="secondary" maxFontSizeMultiplier={1.3}>
           {netLabel}
         </Text>
-        <Money cents={net} currency={currency} variant="display" mode="direction" />
+        {/* Settled is a state, not an amount: "You're settled up" already
+            said it, and "$0.00" underneath only says it again. */}
+        {net !== 0 && (
+          <Money cents={net} currency={currency} variant="display" mode="direction" />
+        )}
       </View>
 
       <View style={[styles.rule, { backgroundColor: colors.border }]} />
