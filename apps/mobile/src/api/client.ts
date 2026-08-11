@@ -32,6 +32,24 @@ function messageFrom(body: unknown, status: number): string {
     : 'Something went wrong. Try again.';
 }
 
+/**
+ * Idempotency key for a money mutation (H1). The API requires a UUID on
+ * every write that moves money, and the point is that it is generated
+ * ONCE per user submit and reused on every retry: a fresh key per retry
+ * is a second expense, which is the exact bug idempotency exists to stop.
+ *
+ * Generated in JS rather than through expo-crypto because the key needs
+ * to be unique, not unpredictable - it is scoped per user and endpoint
+ * server-side - and a native module here would force a new development
+ * build before anyone could test.
+ */
+export function newIdempotencyKey(): string {
+  const hex = (n: number) =>
+    Array.from({ length: n }, () => Math.floor(Math.random() * 16).toString(16)).join('');
+  const variant = ((Math.floor(Math.random() * 4) + 8) % 16).toString(16);
+  return `${hex(8)}-${hex(4)}-4${hex(3)}-${variant}${hex(3)}-${hex(12)}`;
+}
+
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response;
   try {
@@ -75,8 +93,11 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
 
 export const apiGet = <T>(path: string) => apiFetch<T>(path);
 
-export const apiPost = <T>(path: string, body?: unknown) =>
+export const apiPost = <T>(path: string, body?: unknown, idempotencyKey?: string) =>
   apiFetch<T>(path, {
     method: 'POST',
     body: JSON.stringify(body ?? {}),
+    ...(idempotencyKey === undefined
+      ? {}
+      : { headers: { 'Idempotency-Key': idempotencyKey } }),
   });
