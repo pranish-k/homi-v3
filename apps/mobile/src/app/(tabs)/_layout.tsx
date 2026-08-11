@@ -10,9 +10,9 @@ import { EmptyState, Icon, Loading, Screen } from '@/ui/components';
  * HOMI-33: the app's real navigation. Until now the signed-in app was
  * conditional rendering inside index.tsx; the tab bar needs actual routes.
  *
- * v1 ships HOME and HOUSE. The `[+]` create tab from the spec's five-tab
- * map arrives with HOMI-34, which is what gives it something to do -
- * shipping an empty tab now would be a dead control.
+ * v1 ships HOME, the `[+]` create tab (HOMI-34), and HOUSE. MONEY and
+ * CHORES from the spec's five-tab map stay out until they have something
+ * behind them - an empty tab is a dead control.
  *
  * The house is resolved once here and handed to every tab through
  * HouseProvider, so no tab has to re-derive it.
@@ -71,6 +71,15 @@ export default function TabsLayout() {
           options={{
             title: 'Home',
             tabBarIcon: ({ color, size }) => <Icon name="home-outline" color={color} size={size} />,
+          }}
+        />
+        <Tabs.Screen
+          name="add"
+          options={{
+            title: 'Add',
+            tabBarIcon: ({ color, size }) => (
+              <Icon name="add-circle-outline" color={color} size={size + 4} />
+            ),
           }}
         />
         <Tabs.Screen
