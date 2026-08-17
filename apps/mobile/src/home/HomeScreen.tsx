@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import { RefreshControl, StyleSheet, View } from 'react-native';
-import { useFocusEffect } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 
 import { authClient } from '@/auth/client';
 import { feedLine, relativeTime } from '@/houses/feed-copy';
@@ -105,7 +105,16 @@ export default function HomeScreen() {
                 <Row
                   key={`settle-${item.toUserId}`}
                   label={`Pay ${memberName(to)}`}
+                  detail="Tap to settle up"
                   value={<Money cents={item.amountCents} currency={currency} />}
+                  // HOMI-35: the action item is the way into settle-up, so
+                  // the debtor never has to go looking for it (M3/M4).
+                  onPress={() =>
+                    router.navigate({
+                      pathname: '/settle',
+                      params: { to: item.toUserId, amount: String(item.amountCents) },
+                    })
+                  }
                   divider={false}
                 />
               );
