@@ -9,7 +9,7 @@ import { getSnapshot, memberName, type SnapshotMember } from '@/houses/snapshot'
 import { useTheme } from '@/ui/ThemeProvider';
 import { formatMoney, parseAmountToCents } from '@/ui/format';
 import { radius, spacing } from '@/ui/tokens';
-import { Button, Input, Loading, Money, Screen, SectionHeader, Text } from '@/ui/components';
+import { Button, EmptyState, Input, Loading, Money, Screen, SectionHeader, Text } from '@/ui/components';
 import { DISPUTE_WINDOW_HOURS, methodLinks, recordPayment, type PaymentMethod } from './api';
 
 const METHODS: PaymentMethod[] = ['venmo', 'cash_app', 'zelle', 'cash', 'other'];
@@ -41,20 +41,38 @@ export default function SettleUpScreen() {
   const [loadError, setLoadError] = useState<string | undefined>();
   const [visit, setVisit] = useState(0);
 
+  const load = useCallback(() => {
+    setLoadError(undefined);
+    getSnapshot(house.id).then(
+      (snapshot) => setMembers(snapshot.members),
+      (err: unknown) =>
+        setLoadError(err instanceof Error ? err.message : 'Could not load the house.'),
+    );
+  }, [house.id]);
+
   useFocusEffect(
     useCallback(() => {
-      setLoadError(undefined);
-      getSnapshot(house.id).then(
-        (snapshot) => setMembers(snapshot.members),
-        (err: unknown) =>
-          setLoadError(err instanceof Error ? err.message : 'Could not load the house.'),
-      );
+      load();
       // Leaving ends this settle-up: the next arrival gets a fresh form.
       return () => setVisit((n) => n + 1);
-    }, [house.id]),
+    }, [load]),
   );
 
   const payee = members?.find((m) => m.userId === to);
+
+  // Without the members there is no form to show, so a failed first load
+  // must say so and offer the fix, not spin forever.
+  if (members === undefined && loadError !== undefined) {
+    return (
+      <Screen center>
+        <EmptyState
+          title="Could not load your house"
+          body={loadError}
+          action={{ label: 'Try again', onPress: load }}
+        />
+      </Screen>
+    );
+  }
 
   if (members === undefined) {
     return (

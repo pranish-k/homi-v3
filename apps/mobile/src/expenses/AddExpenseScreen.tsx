@@ -10,7 +10,7 @@ import { getSnapshot, memberName, type SnapshotMember } from '@/houses/snapshot'
 import { useTheme } from '@/ui/ThemeProvider';
 import { formatMoney, parseAmountToCents } from '@/ui/format';
 import { radius, spacing } from '@/ui/tokens';
-import { Button, Input, Loading, Screen, SectionHeader, Text } from '@/ui/components';
+import { Button, EmptyState, Input, Loading, Screen, SectionHeader, Text } from '@/ui/components';
 import { createExpense, type CreateExpenseInput, type SplitMode } from './api';
 
 /**
@@ -33,16 +33,34 @@ export default function AddExpenseScreen() {
   const [loadError, setLoadError] = useState<string | undefined>();
   const [added, setAdded] = useState(0);
 
+  const load = useCallback(() => {
+    setLoadError(undefined);
+    getSnapshot(house.id).then(
+      (snapshot) => setMembers(snapshot.members),
+      (err: unknown) =>
+        setLoadError(err instanceof Error ? err.message : 'Could not load the house.'),
+    );
+  }, [house.id]);
+
   useFocusEffect(
     useCallback(() => {
-      setLoadError(undefined);
-      getSnapshot(house.id).then(
-        (snapshot) => setMembers(snapshot.members),
-        (err: unknown) =>
-          setLoadError(err instanceof Error ? err.message : 'Could not load the house.'),
-      );
-    }, [house.id]),
+      load();
+    }, [load]),
   );
+
+  // Without the members there is no form to show, so a failed first load
+  // must say so and offer the fix, not spin forever.
+  if (members === undefined && loadError !== undefined) {
+    return (
+      <Screen center>
+        <EmptyState
+          title="Could not load your house"
+          body={loadError}
+          action={{ label: 'Try again', onPress: load }}
+        />
+      </Screen>
+    );
+  }
 
   if (members === undefined) {
     return (
