@@ -188,9 +188,12 @@ function AddExpenseForm({
 
   // "You" leads the payer chips, since it is the default and the common
   // case; snapshot order would put it wherever the viewer happened to join.
-  const payerOrder = [...members].sort(
-    (a, b) => Number(b.userId === viewerId) - Number(a.userId === viewerId),
-  );
+  // A placeholder roommate owes shares but cannot have paid (the ledger
+  // rejects it, packages/ledger/src/posting.ts), so it is offered as a
+  // participant only, never as a payer.
+  const payerOrder = members
+    .filter((m) => !m.isPlaceholder)
+    .sort((a, b) => Number(b.userId === viewerId) - Number(a.userId === viewerId));
 
   return (
     <Screen scroll>
