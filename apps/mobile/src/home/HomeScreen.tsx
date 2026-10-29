@@ -3,7 +3,7 @@ import { RefreshControl, StyleSheet, View } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
 
 import { authClient } from '@/auth/client';
-import { feedLine, relativeTime } from '@/houses/feed-copy';
+import { feedLine, relativeTime, timeLeft } from '@/houses/feed-copy';
 import { getSnapshot, memberName, type Snapshot } from '@/houses/snapshot';
 import { useRealtimeHints } from '@/houses/useRealtimeHints';
 import { useHouse } from '@/houses/HouseContext';
@@ -85,8 +85,19 @@ export default function HomeScreen() {
     else if (p.to === viewerId) between.set(p.from, p.amountCents);
   }
 
-  // Positive net means the house owes the viewer.
-  const netLabel = net > 0 ? 'You are owed' : net < 0 ? 'You owe' : "You're settled up";
+  // Positive net means the house owes the viewer. A zero net is only
+  // "settled up" when nothing is open with anyone: owing one roommate
+  // exactly what another owes you nets to zero, and "You're settled up"
+  // under a "Pay Sam $3.33" row contradicts the screen it sits on.
+  const hasOpenBalances = [...between.values()].some((cents) => cents !== 0);
+  const netLabel =
+    net > 0
+      ? 'You are owed'
+      : net < 0
+        ? 'You owe'
+        : hasOpenBalances
+          ? "You're even overall"
+          : "You're settled up";
 
   return (
     <Screen
@@ -120,11 +131,12 @@ export default function HomeScreen() {
               );
             }
             const from = snapshot.members.find((m) => m.userId === item.fromUserId);
+            const left = timeLeft(item.disputableUntil);
             return (
               <Row
                 key={`confirm-${item.paymentId}`}
                 label={`${memberName(from)} says they paid you`}
-                detail={`You can dispute this until ${new Date(item.disputableUntil).toLocaleDateString()}`}
+                detail={left === undefined ? undefined : `You can dispute this for ${left}`}
                 value={<Money cents={item.amountCents} currency={currency} />}
                 divider={false}
               />
