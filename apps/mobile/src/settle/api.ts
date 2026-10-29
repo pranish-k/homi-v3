@@ -8,11 +8,27 @@ import { apiPost } from '@/api/client';
 
 export type PaymentMethod = 'venmo' | 'zelle' | 'cash_app' | 'cash' | 'other';
 
+/** The fields the app reads; mirrors the payments row the API returns. */
+export type Payment = {
+  id: string;
+  houseId: string;
+  fromUser: string;
+  toUser: string;
+  amountCents: number;
+  currency: string;
+  method: PaymentMethod | null;
+  status: 'recorded' | 'disputed' | 'resolved';
+  createdAt: string;
+};
+
+/** 201 body of POST /v1/houses/:houseId/payments (apps/api/src/ledger/ledger.service.ts). */
+export type RecordPaymentResponse = { payment: Payment };
+
 export const recordPayment = (
   houseId: string,
   input: { toUser: string; amountCents: number; method?: PaymentMethod },
   idempotencyKey: string,
-) => apiPost<{ id: string }>(`/v1/houses/${houseId}/payments`, input, idempotencyKey);
+) => apiPost<RecordPaymentResponse>(`/v1/houses/${houseId}/payments`, input, idempotencyKey);
 
 /** 72 hours, matching DISPUTE_WINDOW_MS in the API. */
 export const DISPUTE_WINDOW_HOURS = 72;

@@ -18,5 +18,23 @@ export type CreateExpenseInput = {
   exactCents?: Record<string, number>;
 };
 
+/** The fields the app reads; mirrors the expenses row the API returns. */
+export type Expense = {
+  id: string;
+  houseId: string;
+  description: string;
+  amountCents: number;
+  currency: string;
+  paidBy: string;
+  createdBy: string;
+};
+
+/**
+ * 201 body of POST /v1/houses/:houseId/expenses
+ * (apps/api/src/ledger/ledger.service.ts): the expense plus the splits the
+ * server computed, user id -> cents.
+ */
+export type CreateExpenseResponse = { expense: Expense; splits: Record<string, number> };
+
 export const createExpense = (houseId: string, input: CreateExpenseInput, idempotencyKey: string) =>
-  apiPost<{ id: string }>(`/v1/houses/${houseId}/expenses`, input, idempotencyKey);
+  apiPost<CreateExpenseResponse>(`/v1/houses/${houseId}/expenses`, input, idempotencyKey);
