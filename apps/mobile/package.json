@@ -37,6 +37,7 @@
     "react-native-worklets": "0.10.0"
   },
   "devDependencies": {
+    "@homi/domain": "*",
     "@types/react": "~19.2.2",
     "typescript": "~6.0.3",
     "vitest": "^2.1.9"

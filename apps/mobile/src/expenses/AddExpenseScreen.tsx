@@ -12,6 +12,7 @@ import { formatMoney, parseAmountToCents } from '@/ui/format';
 import { radius, spacing } from '@/ui/tokens';
 import { Button, EmptyState, Input, Loading, Screen, SectionHeader, Text } from '@/ui/components';
 import { createExpense, type CreateExpenseInput, type SplitMode } from './api';
+import { equalSplitPreview } from './split-preview';
 
 /**
  * HOMI-34: add an expense in under 15 seconds, which is the R1 release
@@ -195,6 +196,21 @@ function AddExpenseForm({
     .filter((m) => !m.isPlaceholder)
     .sort((a, b) => Number(b.userId === viewerId) - Number(a.userId === viewerId));
 
+  // Everyone is a participant in v1, and the server gives each the floor
+  // and the payer the leftover cents; the preview says exactly that.
+  const equalPreview =
+    amountCents === undefined ? undefined : equalSplitPreview(amountCents, members.length);
+  const payerCovers =
+    payer === viewerId ? 'You cover' : `${memberName(members.find((m) => m.userId === payer))} covers`;
+  const people = `${members.length} ${members.length === 1 ? 'person' : 'people'}`;
+  const equalCopy =
+    equalPreview === undefined
+      ? `Split evenly between ${people}.`
+      : equalPreview.payerExtraCents === 0
+        ? `${formatMoney(equalPreview.eachCents, house.currency)} each, across ${people}.`
+        : `${formatMoney(equalPreview.eachCents, house.currency)} each, across ${people}. ` +
+          `${payerCovers} the extra ${formatMoney(equalPreview.payerExtraCents, house.currency)}.`;
+
   return (
     <Screen scroll>
       <Text variant="title">Add an expense</Text>
@@ -266,9 +282,7 @@ function AddExpenseForm({
 
       {mode === 'equal' ? (
         <Text variant="caption" tone="tertiary">
-          {amountCents === undefined
-            ? `Split evenly between ${members.length} ${members.length === 1 ? 'person' : 'people'}.`
-            : `${formatMoney(Math.round(amountCents / members.length), house.currency)} each, across ${members.length}. HOMI settles the odd cent.`}
+          {equalCopy}
         </Text>
       ) : (
         <View style={styles.exact}>
