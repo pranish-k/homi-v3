@@ -1,3 +1,4 @@
+import type { Ref } from 'react';
 import { StyleSheet, TextInput, View, type TextInputProps } from 'react-native';
 
 import { useTheme } from '../ThemeProvider';
@@ -15,6 +16,8 @@ export type InputProps = Omit<TextInputProps, 'style' | 'placeholderTextColor'> 
    * prints "1 9 . 9 9".
    */
   amount?: boolean;
+  /** For a screen that has to move focus itself (React 19 passes ref as a prop). */
+  ref?: Ref<TextInput>;
 };
 
 export default function Input({
@@ -22,6 +25,7 @@ export default function Input({
   error,
   code = false,
   amount = false,
+  ref,
   ...rest
 }: InputProps) {
   const { colors } = useTheme();
@@ -34,6 +38,7 @@ export default function Input({
         </Text>
       )}
       <TextInput
+        ref={ref}
         placeholderTextColor={colors.textTertiary}
         style={[
           styles.input,

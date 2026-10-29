@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View, type TextInput } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
 
 import { newIdempotencyKey } from '@/api/client';
@@ -19,14 +19,65 @@ import { createExpense, type SplitMode } from './api';
  * you, then the split defaulting to equal, then an optional description.
  * Someone who accepts every default reaches the button having typed only
  * an amount.
+ *
+ * The `[+]` tab stays mounted, so a half-typed expense survives a trip to
+ * another tab, but a finished one must not leak into the next: every
+ * field, the error and the idempotency key live in `AddExpenseForm`, which
+ * is remounted (keyed) after each successful add.
  */
 export default function AddExpenseScreen() {
+  const house = useHouse();
+
+  const [members, setMembers] = useState<SnapshotMember[] | undefined>();
+  const [loadError, setLoadError] = useState<string | undefined>();
+  const [added, setAdded] = useState(0);
+
+  useFocusEffect(
+    useCallback(() => {
+      setLoadError(undefined);
+      getSnapshot(house.id).then(
+        (snapshot) => setMembers(snapshot.members),
+        (err: unknown) =>
+          setLoadError(err instanceof Error ? err.message : 'Could not load the house.'),
+      );
+    }, [house.id]),
+  );
+
+  if (members === undefined) {
+    return (
+      <Screen center>
+        <Loading />
+      </Screen>
+    );
+  }
+
+  return (
+    <AddExpenseForm
+      key={added}
+      members={members}
+      loadError={loadError}
+      onAdded={() => {
+        setAdded((n) => n + 1);
+        router.navigate('/home');
+      }}
+    />
+  );
+}
+
+function AddExpenseForm({
+  members,
+  loadError,
+  onAdded,
+}: {
+  members: SnapshotMember[];
+  loadError: string | undefined;
+  onAdded: () => void;
+}) {
   const house = useHouse();
   const { colors } = useTheme();
   const { data: session } = authClient.useSession();
   const viewerId = session?.user.id;
 
-  const [members, setMembers] = useState<SnapshotMember[] | undefined>();
   const [amount, setAmount] = useState('');
   const [paidBy, setPaidBy] = useState<string | undefined>();
   const [mode, setMode] = useState<SplitMode>('equal');
@@ -42,14 +93,16 @@ export default function AddExpenseScreen() {
    */
   const pendingKey = useRef<string | undefined>(undefined);
 
+  // autoFocus fires on mount only, and this tab stays mounted: put the
+  // keyboard back up on every arrival, which is the 15-second design.
+  const amountInput = useRef<TextInput>(null);
   useFocusEffect(
     useCallback(() => {
-      getSnapshot(house.id).then(
-        (snapshot) => setMembers(snapshot.members),
-        (err: unknown) => setError(err instanceof Error ? err.message : 'Could not load the house.'),
-      );
-    }, [house.id]),
+      amountInput.current?.focus();
+    }, []),
   );
+
+  const shownError = error ?? loadError;
 
   const amountCents = parseAmountToCents(amount);
   const payer = paidBy ?? viewerId;
@@ -63,11 +116,10 @@ export default function AddExpenseScreen() {
   const exactMismatch =
     mode === 'exact' && amountCents !== undefined && exactTotal !== amountCents;
 
-  const canSubmit =
-    amountCents !== undefined && payer !== undefined && members !== undefined && !exactMismatch;
+  const canSubmit = amountCents !== undefined && payer !== undefined && !exactMismatch;
 
   const submit = () => {
-    if (busy || members === undefined || payer === undefined) return;
+    if (busy || payer === undefined) return;
     if (amountCents === undefined || exactMismatch) return;
     setBusy(true);
     setError(undefined);
@@ -95,16 +147,9 @@ export default function AddExpenseScreen() {
       },
       pendingKey.current,
     ).then(
-      () => {
-        pendingKey.current = undefined; // this submit is done; the next one is a new expense
-        setBusy(false);
-        setAmount('');
-        setDescription('');
-        setExact({});
-        setMode('equal');
-        setPaidBy(undefined);
-        router.navigate('/home');
-      },
+      // This expense is done; the remount gives the next one a clean form
+      // and a new key.
+      onAdded,
       (err: unknown) => {
         // The key is deliberately kept, so tapping again retries the same
         // expense instead of creating a second one.
@@ -113,14 +158,6 @@ export default function AddExpenseScreen() {
       },
     );
   };
-
-  if (members === undefined) {
-    return (
-      <Screen center>
-        <Loading />
-      </Screen>
-    );
-  }
 
   // "You" leads the payer chips, since it is the default and the common
   // case; snapshot order would put it wherever the viewer happened to join.
@@ -133,6 +170,7 @@ export default function AddExpenseScreen() {
       <Text variant="title">Add an expense</Text>
 
       <Input
+        ref={amountInput}
         value={amount}
         onChangeText={setAmount}
         placeholder="0.00"
@@ -236,9 +274,9 @@ export default function AddExpenseScreen() {
         onSubmitEditing={submit}
       />
 
-      {error !== undefined && (
+      {shownError !== undefined && (
         <Text variant="caption" tone="negative">
-          {error}
+          {shownError}
         </Text>
       )}
 
