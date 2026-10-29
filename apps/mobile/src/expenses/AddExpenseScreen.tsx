@@ -232,6 +232,8 @@ function AddExpenseForm({
 
       <Input
         ref={amountInput}
+        accessibilityLabel="Amount"
+        accessibilityHint="The total of the expense"
         value={amount}
         onChangeText={setAmount}
         placeholder="0.00"
@@ -305,6 +307,9 @@ function AddExpenseForm({
             <Input
               key={member.userId}
               label={member.userId === viewerId ? 'You' : memberName(member)}
+              accessibilityLabel={
+                member.userId === viewerId ? 'Your share' : `${memberName(member)}'s share`
+              }
               value={exact[member.userId] ?? ''}
               error={exactShares.get(member.userId) === undefined ? 'Not an amount' : undefined}
               onChangeText={(value) => setExact((prev) => ({ ...prev, [member.userId]: value }))}
@@ -324,6 +329,7 @@ function AddExpenseForm({
 
       <SectionHeader title="What was it?" />
       <Input
+        accessibilityLabel="What was it? Optional"
         value={description}
         onChangeText={setDescription}
         placeholder="Groceries (optional)"

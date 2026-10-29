@@ -187,6 +187,7 @@ function SettleUpForm({
 
       <SectionHeader title="Amount" />
       <Input
+        accessibilityLabel={`Amount paid to ${memberName(payee)}`}
         value={amount}
         onChangeText={setAmount}
         placeholder="0.00"
