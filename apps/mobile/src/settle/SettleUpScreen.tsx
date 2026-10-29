@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Linking, Pressable, StyleSheet, View } from 'react-native';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 
@@ -12,6 +12,10 @@ import { Button, Input, Loading, Money, Screen, SectionHeader, Text } from '@/ui
 import { DISPUTE_WINDOW_HOURS, methodLinks, recordPayment, type PaymentMethod } from './api';
 
 const METHODS: PaymentMethod[] = ['venmo', 'cash_app', 'zelle', 'cash', 'other'];
+
+/** Integer cents from the route ("534") into the editable field ("5.34"). */
+const presetToInput = (cents: string | undefined): string =>
+  cents === undefined ? '' : (Number(cents) / 100).toFixed(2);
 
 /**
  * HOMI-35: settle up. One tap records the payment; the payment apps are
@@ -27,15 +31,24 @@ export default function SettleUpScreen() {
   const { to, amount: presetAmount } = useLocalSearchParams<{ to?: string; amount?: string }>();
 
   const [members, setMembers] = useState<SnapshotMember[] | undefined>();
-  const [amount, setAmount] = useState(
-    presetAmount === undefined ? '' : (Number(presetAmount) / 100).toFixed(2),
-  );
+  const [amount, setAmount] = useState(presetToInput(presetAmount));
   const [method, setMethod] = useState<PaymentMethod | undefined>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>();
 
   // Held across retries so tapping again cannot record a second payment.
   const pendingKey = useRef<string | undefined>(undefined);
+
+  // This screen lives in the tab navigator, so it stays mounted between
+  // visits and useState's initial value is read only once. Every arrival
+  // from HOME is a fresh settlement: re-seed from the params, or a part
+  // payment's amount would be offered again in place of what is now owed.
+  useEffect(() => {
+    setAmount(presetToInput(presetAmount));
+    setMethod(undefined);
+    setError(undefined);
+    pendingKey.current = undefined;
+  }, [to, presetAmount]);
 
   useFocusEffect(
     useCallback(() => {
