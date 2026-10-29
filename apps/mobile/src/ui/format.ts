@@ -1,6 +1,6 @@
 import * as Localization from 'expo-localization';
 
-import { parseAmount } from './amount';
+import { parseAmount, parseCents } from './amount';
 
 /**
  * HOMI-36: the one place money becomes a string.
@@ -33,6 +33,10 @@ const decimalSeparator = (): string => Localization.getLocales()[0]?.decimalSepa
  */
 export const parseAmountToCents = (input: string): number | undefined =>
   parseAmount(input, decimalSeparator());
+
+/** As `parseAmountToCents`, but zero is valid: one person's exact share. */
+export const parseShareToCents = (input: string): number | undefined =>
+  parseCents(input, decimalSeparator());
 
 /**
  * 2500 USD -> "$25.00", -2500 USD -> "-$25.00".

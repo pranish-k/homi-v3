@@ -8,7 +8,7 @@ import { authClient } from '@/auth/client';
 import { useHouse } from '@/houses/HouseContext';
 import { getSnapshot, memberName, type SnapshotMember } from '@/houses/snapshot';
 import { useTheme } from '@/ui/ThemeProvider';
-import { formatMoney, parseAmountToCents } from '@/ui/format';
+import { formatMoney, parseAmountToCents, parseShareToCents } from '@/ui/format';
 import { radius, spacing } from '@/ui/tokens';
 import { Button, EmptyState, Input, Loading, Screen, SectionHeader, Text } from '@/ui/components';
 import { createExpense, type CreateExpenseInput, type SplitMode } from './api';
@@ -129,14 +129,30 @@ function AddExpenseForm({
   const amountCents = parseAmountToCents(amount);
   const payer = paidBy ?? viewerId;
 
-  const exactTotal = useMemo(
+  // Everyone in the house is a participant in v1. The exact entries are
+  // read only for them: `exact` can still hold a share typed for someone
+  // the latest snapshot no longer lists, and counting it would make the
+  // total check pass for a request the server rejects.
+  const participants = useMemo(() => members.map((m) => m.userId), [members]);
+
+  /** Per participant: cents, 0 for an empty field, undefined if unreadable. */
+  const exactShares = useMemo(
     () =>
-      Object.values(exact).reduce((sum, value) => sum + (parseAmountToCents(value) ?? 0), 0),
-    [exact],
+      new Map(
+        participants.map((id) => {
+          const raw = (exact[id] ?? '').trim();
+          return [id, raw === '' ? 0 : parseShareToCents(raw)] as const;
+        }),
+      ),
+    [participants, exact],
   );
+  const exactTotal = [...exactShares.values()].reduce<number>((sum, c) => sum + (c ?? 0), 0);
+  const exactUnreadable = [...exactShares.values()].some((c) => c === undefined);
 
   const exactMismatch =
-    mode === 'exact' && amountCents !== undefined && exactTotal !== amountCents;
+    mode === 'exact' &&
+    amountCents !== undefined &&
+    (exactUnreadable || exactTotal !== amountCents);
 
   const canSubmit = amountCents !== undefined && payer !== undefined && !exactMismatch;
 
@@ -144,7 +160,6 @@ function AddExpenseForm({
     if (busy || payer === undefined) return;
     if (amountCents === undefined || exactMismatch) return;
 
-    const participants = members.map((m) => m.userId);
     const input: CreateExpenseInput = {
       // The API requires a description; the design makes it optional so
       // an amount alone is a valid expense, so the default lives here
@@ -157,7 +172,7 @@ function AddExpenseForm({
       ...(mode === 'exact'
         ? {
             exactCents: Object.fromEntries(
-              participants.map((id) => [id, parseAmountToCents(exact[id] ?? '') ?? 0]),
+              participants.map((id) => [id, exactShares.get(id) ?? 0]),
             ),
           }
         : {}),
@@ -291,13 +306,14 @@ function AddExpenseForm({
               key={member.userId}
               label={member.userId === viewerId ? 'You' : memberName(member)}
               value={exact[member.userId] ?? ''}
+              error={exactShares.get(member.userId) === undefined ? 'Not an amount' : undefined}
               onChangeText={(value) => setExact((prev) => ({ ...prev, [member.userId]: value }))}
               placeholder="0.00"
               keyboardType="decimal-pad"
               editable={!busy}
             />
           ))}
-          {exactMismatch && amountCents !== undefined && (
+          {exactMismatch && !exactUnreadable && amountCents !== undefined && (
             <Text variant="caption" tone="negative">
               These add up to {formatMoney(exactTotal, house.currency)}, not{' '}
               {formatMoney(amountCents, house.currency)}.
