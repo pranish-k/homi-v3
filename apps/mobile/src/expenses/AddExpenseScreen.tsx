@@ -122,6 +122,12 @@ export default function AddExpenseScreen() {
     );
   }
 
+  // "You" leads the payer chips, since it is the default and the common
+  // case; snapshot order would put it wherever the viewer happened to join.
+  const payerOrder = [...members].sort(
+    (a, b) => Number(b.userId === viewerId) - Number(a.userId === viewerId),
+  );
+
   return (
     <Screen scroll>
       <Text variant="title">Add an expense</Text>
@@ -132,13 +138,13 @@ export default function AddExpenseScreen() {
         placeholder="0.00"
         keyboardType="decimal-pad"
         autoFocus
-        code
+        amount
         editable={!busy}
       />
 
       <SectionHeader title="Paid by" />
       <View style={styles.chips}>
-        {members.map((member) => {
+        {payerOrder.map((member) => {
           const selected = member.userId === payer;
           return (
             <Pressable

@@ -41,8 +41,19 @@ export function feedLine(
         : `${who} added an expense`;
     case 'expense.edited':
       return what !== undefined ? `${who} edited ${what}` : `${who} edited an expense`;
-    case 'payment.recorded':
+    case 'payment.recorded': {
+      // Name the payee: in a house of three, "Sam recorded a payment of
+      // $10.00" leaves everyone else guessing who was paid.
+      const to = typeof event.payload?.toUser === 'string' ? event.payload.toUser : undefined;
+      const payee =
+        to === undefined
+          ? undefined
+          : to === viewerId
+            ? 'you'
+            : memberName(members.find((m) => m.userId === to));
+      if (payee !== undefined && money !== undefined) return `${who} paid ${payee} ${money}`;
       return money !== undefined ? `${who} recorded a payment of ${money}` : `${who} recorded a payment`;
+    }
     case 'payment.disputed':
       return `${who} disputed a payment`;
     case 'payment.resolved':
@@ -78,3 +89,17 @@ export function relativeTime(iso: string, now: number = Date.now()): string {
 
 export const placeholderSuffix = (member: SnapshotMember | undefined): string =>
   member?.isPlaceholder === true ? ` (${memberName(member)} has not joined yet)` : '';
+
+/**
+ * Time left until a deadline, for the confirm_payment caption: "2 days",
+ * "5 hours", or undefined once it has passed. Design section 7 asks for
+ * a countdown rather than a date, which also avoids the locale-ambiguous
+ * "11/1/2026".
+ */
+export function timeLeft(iso: string, now: number = Date.now()): string | undefined {
+  const hours = Math.floor((new Date(iso).getTime() - now) / 3_600_000);
+  if (hours < 0) return undefined;
+  if (hours < 1) return 'less than an hour';
+  if (hours < 48) return `${hours} ${hours === 1 ? 'hour' : 'hours'}`;
+  return `${Math.floor(hours / 24)} days`;
+}

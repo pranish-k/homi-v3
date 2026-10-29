@@ -9,9 +9,21 @@ export type InputProps = Omit<TextInputProps, 'style' | 'placeholderTextColor'> 
   error?: string;
   /** Centred, widely tracked digits for the one-time code field. */
   code?: boolean;
+  /**
+   * Centred, large, tabular money entry. Not `code`: its wide tracking is
+   * for reading a one-time code digit by digit, and on an amount it
+   * prints "1 9 . 9 9".
+   */
+  amount?: boolean;
 };
 
-export default function Input({ label, error, code = false, ...rest }: InputProps) {
+export default function Input({
+  label,
+  error,
+  code = false,
+  amount = false,
+  ...rest
+}: InputProps) {
   const { colors } = useTheme();
 
   return (
@@ -31,6 +43,7 @@ export default function Input({ label, error, code = false, ...rest }: InputProp
             backgroundColor: colors.bg,
           },
           code && styles.code,
+          amount && styles.amount,
         ]}
         {...rest}
       />
@@ -57,6 +70,13 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontSize: typography.title.fontSize,
     letterSpacing: 8,
+    paddingVertical: spacing.lg - 2,
+  },
+  amount: {
+    textAlign: 'center',
+    fontSize: typography.title.fontSize,
+    fontWeight: typography.heading.fontWeight,
+    fontVariant: ['tabular-nums'],
     paddingVertical: spacing.lg - 2,
   },
 });

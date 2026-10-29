@@ -13,6 +13,10 @@ import { DISPUTE_WINDOW_HOURS, methodLinks, recordPayment, type PaymentMethod } 
 
 const METHODS: PaymentMethod[] = ['venmo', 'cash_app', 'zelle', 'cash', 'other'];
 
+/** Integer cents from the route ("534") into the editable field ("5.34"). */
+const presetToInput = (cents: string | undefined): string =>
+  cents === undefined ? '' : (Number(cents) / 100).toFixed(2);
+
 /**
  * HOMI-35: settle up. One tap records the payment; the payment apps are
  * offered alongside, never required, because HOMI records the truth and
@@ -93,9 +97,7 @@ function SettleUpForm({
   const { colors } = useTheme();
   const to = payee.userId;
 
-  const [amount, setAmount] = useState(
-    presetAmount === undefined ? '' : (Number(presetAmount) / 100).toFixed(2),
-  );
+  const [amount, setAmount] = useState(presetToInput(presetAmount));
   const [method, setMethod] = useState<PaymentMethod | undefined>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>();
