@@ -7,16 +7,13 @@ import { bindIdempotencyKey, IDEMPOTENCY_CONFLICT, type PendingRequest } from '@
 import { useHouse } from '@/houses/HouseContext';
 import { getSnapshot, memberName, type SnapshotMember } from '@/houses/snapshot';
 import { useTheme } from '@/ui/ThemeProvider';
+import { centsParamToInput } from '@/ui/amount';
 import { formatMoney, parseAmountToCents } from '@/ui/format';
 import { radius, spacing } from '@/ui/tokens';
 import { Button, EmptyState, Input, Loading, Money, Screen, SectionHeader, Text } from '@/ui/components';
 import { DISPUTE_WINDOW_HOURS, methodLinks, recordPayment, type PaymentMethod } from './api';
 
 const METHODS: PaymentMethod[] = ['venmo', 'cash_app', 'zelle', 'cash', 'other'];
-
-/** Integer cents from the route ("534") into the editable field ("5.34"). */
-const presetToInput = (cents: string | undefined): string =>
-  cents === undefined ? '' : (Number(cents) / 100).toFixed(2);
 
 /**
  * HOMI-35: settle up. One tap records the payment; the payment apps are
@@ -35,7 +32,11 @@ const presetToInput = (cents: string | undefined): string =>
  */
 export default function SettleUpScreen() {
   const house = useHouse();
-  const { to, amount: presetAmount } = useLocalSearchParams<{ to?: string; amount?: string }>();
+  // Typed as strings, but a deep link can repeat a param and expo-router
+  // then hands over an array: neither param is trusted as-is.
+  const params = useLocalSearchParams<{ to?: string | string[]; amount?: string | string[] }>();
+  const to = typeof params.to === 'string' ? params.to : undefined;
+  const presetInput = centsParamToInput(params.amount);
 
   const [members, setMembers] = useState<SnapshotMember[] | undefined>();
   const [loadError, setLoadError] = useState<string | undefined>();
@@ -95,9 +96,9 @@ export default function SettleUpScreen() {
 
   return (
     <SettleUpForm
-      key={`${to}|${presetAmount ?? ''}|${visit}`}
+      key={`${to}|${presetInput}|${visit}`}
       payee={payee}
-      presetAmount={presetAmount}
+      presetInput={presetInput}
       loadError={loadError}
     />
   );
@@ -105,18 +106,19 @@ export default function SettleUpScreen() {
 
 function SettleUpForm({
   payee,
-  presetAmount,
+  presetInput,
   loadError,
 }: {
   payee: SnapshotMember;
-  presetAmount: string | undefined;
+  /** The editable amount to start from, already validated ("" if none). */
+  presetInput: string;
   loadError: string | undefined;
 }) {
   const house = useHouse();
   const { colors } = useTheme();
   const to = payee.userId;
 
-  const [amount, setAmount] = useState(presetToInput(presetAmount));
+  const [amount, setAmount] = useState(presetInput);
   const [method, setMethod] = useState<PaymentMethod | undefined>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>();

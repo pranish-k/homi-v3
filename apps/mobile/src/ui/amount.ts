@@ -54,3 +54,17 @@ export function parseAmount(input: string, decimalSeparator: string): number | u
   const cents = parseCents(input, decimalSeparator);
   return cents !== undefined && cents > 0 ? cents : undefined;
 }
+
+/**
+ * Integer cents from a route param ("534") into an editable field
+ * ("5.34"), or "" for anything that is not a whole positive number of
+ * cents within the API ceiling. Route params are user-reachable through
+ * deep links, and expo-router hands a repeated param over as an array, so
+ * neither is trusted. Digit-wise, like the parser, so no float is involved.
+ */
+export function centsParamToInput(param: string | string[] | undefined): string {
+  if (typeof param !== 'string' || !/^\d+$/.test(param)) return '';
+  const cents = Number(param);
+  if (!Number.isSafeInteger(cents) || cents <= 0 || cents > MAX_AMOUNT_CENTS) return '';
+  return `${Math.trunc(cents / 100)}.${String(cents % 100).padStart(2, '0')}`;
+}

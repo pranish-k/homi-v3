@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { MAX_AMOUNT_CENTS, parseAmount, parseCents } from './amount';
+import { centsParamToInput, MAX_AMOUNT_CENTS, parseAmount, parseCents } from './amount';
 
 describe('parseAmount with a "." device separator', () => {
   const parse = (input: string) => parseAmount(input, '.');
@@ -102,5 +102,29 @@ describe('parseCents', () => {
     expect(parseCents('', '.')).toBeUndefined();
     expect(parseCents('12,50', '.')).toBeUndefined();
     expect(parseCents('-1', '.')).toBeUndefined();
+  });
+});
+
+describe('centsParamToInput', () => {
+  it('formats whole cents digit-wise', () => {
+    expect(centsParamToInput('534')).toBe('5.34');
+    expect(centsParamToInput('5')).toBe('0.05');
+    expect(centsParamToInput('100')).toBe('1.00');
+    expect(centsParamToInput(String(MAX_AMOUNT_CENTS))).toBe('100000000.00');
+  });
+
+  it('round-trips through the parser', () => {
+    for (const cents of [1, 29, 1999, 123456]) {
+      expect(parseAmount(centsParamToInput(String(cents)), '.')).toBe(cents);
+    }
+  });
+
+  it('ignores anything that is not a whole positive cent count', () => {
+    for (const bad of ['', '0', '-5', '5.5', '1e3', ' 5', 'abc', '99999999999999999999']) {
+      expect(centsParamToInput(bad)).toBe('');
+    }
+    expect(centsParamToInput(String(MAX_AMOUNT_CENTS + 1))).toBe('');
+    expect(centsParamToInput(undefined)).toBe('');
+    expect(centsParamToInput(['534', '600'])).toBe('');
   });
 });
