@@ -2,7 +2,8 @@ import { useCallback, useRef, useState } from 'react';
 import { Linking, Pressable, StyleSheet, View } from 'react-native';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 
-import { newIdempotencyKey } from '@/api/client';
+import { ApiError, newIdempotencyKey } from '@/api/client';
+import { bindIdempotencyKey, IDEMPOTENCY_CONFLICT, type PendingRequest } from '@/api/idempotency';
 import { useHouse } from '@/houses/HouseContext';
 import { getSnapshot, memberName, type SnapshotMember } from '@/houses/snapshot';
 import { useTheme } from '@/ui/ThemeProvider';
@@ -102,8 +103,10 @@ function SettleUpForm({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>();
 
-  // Held across retries so tapping again cannot record a second payment.
-  const pendingKey = useRef<string | undefined>(undefined);
+  // Bound to the request body: an unchanged retry reuses the key, so
+  // tapping again cannot record a second payment; an edited amount or
+  // method is a new request and gets a new key instead of a 409.
+  const pending = useRef<PendingRequest | undefined>(undefined);
 
   const amountCents = parseAmountToCents(amount);
   const shownError = error ?? loadError;
@@ -122,22 +125,26 @@ function SettleUpForm({
 
   const submit = () => {
     if (busy || amountCents === undefined) return;
+    const input = { toUser: to, amountCents, ...(method === undefined ? {} : { method }) };
     setBusy(true);
     setError(undefined);
-    pendingKey.current ??= newIdempotencyKey();
+    pending.current = bindIdempotencyKey(pending.current, input, newIdempotencyKey);
 
-    recordPayment(
-      house.id,
-      { toUser: to, amountCents, ...(method === undefined ? {} : { method }) },
-      pendingKey.current,
-    ).then(
+    recordPayment(house.id, input, pending.current.key).then(
       () => {
-        pendingKey.current = undefined;
+        pending.current = undefined;
         setBusy(false);
         router.navigate('/home');
       },
       (err: unknown) => {
         setBusy(false);
+        if (err instanceof ApiError && err.status === IDEMPOTENCY_CONFLICT) {
+          // Whether an earlier attempt landed is unknown; never retry into
+          // a possible duplicate payment.
+          pending.current = undefined;
+          setError('This may already have been recorded - check Home.');
+          return;
+        }
         setError(err instanceof Error ? err.message : 'Could not record the payment.');
       },
     );

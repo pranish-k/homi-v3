@@ -2,7 +2,8 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, View, type TextInput } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
 
-import { newIdempotencyKey } from '@/api/client';
+import { ApiError, newIdempotencyKey } from '@/api/client';
+import { bindIdempotencyKey, IDEMPOTENCY_CONFLICT, type PendingRequest } from '@/api/idempotency';
 import { authClient } from '@/auth/client';
 import { useHouse } from '@/houses/HouseContext';
 import { getSnapshot, memberName, type SnapshotMember } from '@/houses/snapshot';
@@ -10,7 +11,7 @@ import { useTheme } from '@/ui/ThemeProvider';
 import { formatMoney, parseAmountToCents } from '@/ui/format';
 import { radius, spacing } from '@/ui/tokens';
 import { Button, Input, Loading, Screen, SectionHeader, Text } from '@/ui/components';
-import { createExpense, type SplitMode } from './api';
+import { createExpense, type CreateExpenseInput, type SplitMode } from './api';
 
 /**
  * HOMI-34: add an expense in under 15 seconds, which is the R1 release
@@ -87,11 +88,13 @@ function AddExpenseForm({
   const [error, setError] = useState<string | undefined>();
 
   /**
-   * Generated once per submit and reused while that submit is being
-   * retried; cleared only after one succeeds. Regenerating on retry would
-   * post a second expense (H1).
+   * Bound to the request body: reused while a failed submit is retried
+   * unchanged (a fresh key per retry would post a second expense, H1), and
+   * replaced when the form is edited, since the same key with a different
+   * body is a 409. The form remounts after success, so the next expense
+   * always starts without one.
    */
-  const pendingKey = useRef<string | undefined>(undefined);
+  const pending = useRef<PendingRequest | undefined>(undefined);
 
   // autoFocus fires on mount only, and this tab stays mounted: put the
   // keyboard back up on every arrival, which is the 15-second design.
@@ -121,39 +124,45 @@ function AddExpenseForm({
   const submit = () => {
     if (busy || payer === undefined) return;
     if (amountCents === undefined || exactMismatch) return;
-    setBusy(true);
-    setError(undefined);
-    pendingKey.current ??= newIdempotencyKey();
 
     const participants = members.map((m) => m.userId);
-    createExpense(
-      house.id,
-      {
-        // The API requires a description; the design makes it optional so
-        // an amount alone is a valid expense, so the default lives here
-        // rather than loosening the ledger schema.
-        description: description.trim() || 'Expense',
-        amountCents,
-        paidBy: payer,
-        mode,
-        participants,
-        ...(mode === 'exact'
-          ? {
-              exactCents: Object.fromEntries(
-                participants.map((id) => [id, parseAmountToCents(exact[id] ?? '') ?? 0]),
-              ),
-            }
-          : {}),
-      },
-      pendingKey.current,
-    ).then(
+    const input: CreateExpenseInput = {
+      // The API requires a description; the design makes it optional so
+      // an amount alone is a valid expense, so the default lives here
+      // rather than loosening the ledger schema.
+      description: description.trim() || 'Expense',
+      amountCents,
+      paidBy: payer,
+      mode,
+      participants,
+      ...(mode === 'exact'
+        ? {
+            exactCents: Object.fromEntries(
+              participants.map((id) => [id, parseAmountToCents(exact[id] ?? '') ?? 0]),
+            ),
+          }
+        : {}),
+    };
+    setBusy(true);
+    setError(undefined);
+    pending.current = bindIdempotencyKey(pending.current, input, newIdempotencyKey);
+
+    createExpense(house.id, input, pending.current.key).then(
       // This expense is done; the remount gives the next one a clean form
       // and a new key.
       onAdded,
       (err: unknown) => {
-        // The key is deliberately kept, so tapping again retries the same
-        // expense instead of creating a second one.
         setBusy(false);
+        if (err instanceof ApiError && err.status === IDEMPOTENCY_CONFLICT) {
+          // The key met a different request server-side, so whether an
+          // earlier attempt landed is unknown. Never retry into a possible
+          // duplicate: drop the key and point at the ledger.
+          pending.current = undefined;
+          setError('This may already have been added - check Home.');
+          return;
+        }
+        // Otherwise the key is kept, so tapping again with the same form
+        // retries the same expense instead of creating a second one.
         setError(err instanceof Error ? err.message : 'Could not add the expense.');
       },
     );
