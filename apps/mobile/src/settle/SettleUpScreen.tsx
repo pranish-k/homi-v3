@@ -20,13 +20,79 @@ const METHODS: PaymentMethod[] = ['venmo', 'cash_app', 'zelle', 'cash', 'other']
  *
  * The amount is pre-filled from what HOME says you owe, so the common
  * case is open-and-confirm. It stays editable for a part payment.
+ *
+ * This route is a hidden tab, so the screen stays mounted between visits.
+ * Everything a visit types or picks therefore lives in `SettleUpForm`,
+ * keyed on the route params and on a visit counter bumped when the screen
+ * loses focus: each arrival starts from the params it was opened with,
+ * never from what the previous visit left behind (the previous payee's
+ * amount, method, error, or idempotency key).
  */
 export default function SettleUpScreen() {
   const house = useHouse();
-  const { colors } = useTheme();
   const { to, amount: presetAmount } = useLocalSearchParams<{ to?: string; amount?: string }>();
 
   const [members, setMembers] = useState<SnapshotMember[] | undefined>();
+  const [loadError, setLoadError] = useState<string | undefined>();
+  const [visit, setVisit] = useState(0);
+
+  useFocusEffect(
+    useCallback(() => {
+      setLoadError(undefined);
+      getSnapshot(house.id).then(
+        (snapshot) => setMembers(snapshot.members),
+        (err: unknown) =>
+          setLoadError(err instanceof Error ? err.message : 'Could not load the house.'),
+      );
+      // Leaving ends this settle-up: the next arrival gets a fresh form.
+      return () => setVisit((n) => n + 1);
+    }, [house.id]),
+  );
+
+  const payee = members?.find((m) => m.userId === to);
+
+  if (members === undefined) {
+    return (
+      <Screen center>
+        <Loading />
+      </Screen>
+    );
+  }
+
+  if (to === undefined || payee === undefined) {
+    return (
+      <Screen center>
+        <Text variant="heading" center>
+          Nothing to settle
+        </Text>
+        <Button label="Back to home" variant="secondary" onPress={() => router.navigate('/home')} />
+      </Screen>
+    );
+  }
+
+  return (
+    <SettleUpForm
+      key={`${to}|${presetAmount ?? ''}|${visit}`}
+      payee={payee}
+      presetAmount={presetAmount}
+      loadError={loadError}
+    />
+  );
+}
+
+function SettleUpForm({
+  payee,
+  presetAmount,
+  loadError,
+}: {
+  payee: SnapshotMember;
+  presetAmount: string | undefined;
+  loadError: string | undefined;
+}) {
+  const house = useHouse();
+  const { colors } = useTheme();
+  const to = payee.userId;
+
   const [amount, setAmount] = useState(
     presetAmount === undefined ? '' : (Number(presetAmount) / 100).toFixed(2),
   );
@@ -37,17 +103,8 @@ export default function SettleUpScreen() {
   // Held across retries so tapping again cannot record a second payment.
   const pendingKey = useRef<string | undefined>(undefined);
 
-  useFocusEffect(
-    useCallback(() => {
-      getSnapshot(house.id).then(
-        (snapshot) => setMembers(snapshot.members),
-        (err: unknown) => setError(err instanceof Error ? err.message : 'Could not load the house.'),
-      );
-    }, [house.id]),
-  );
-
   const amountCents = parseAmountToCents(amount);
-  const payee = members?.find((m) => m.userId === to);
+  const shownError = error ?? loadError;
 
   const openMethodApp = async (chosen: PaymentMethod) => {
     setMethod(chosen);
@@ -62,7 +119,7 @@ export default function SettleUpScreen() {
   };
 
   const submit = () => {
-    if (busy || to === undefined || amountCents === undefined) return;
+    if (busy || amountCents === undefined) return;
     setBusy(true);
     setError(undefined);
     pendingKey.current ??= newIdempotencyKey();
@@ -83,25 +140,6 @@ export default function SettleUpScreen() {
       },
     );
   };
-
-  if (members === undefined) {
-    return (
-      <Screen center>
-        <Loading />
-      </Screen>
-    );
-  }
-
-  if (to === undefined || payee === undefined) {
-    return (
-      <Screen center>
-        <Text variant="heading" center>
-          Nothing to settle
-        </Text>
-        <Button label="Back to home" variant="secondary" onPress={() => router.navigate('/home')} />
-      </Screen>
-    );
-  }
 
   return (
     <Screen scroll>
@@ -151,9 +189,9 @@ export default function SettleUpScreen() {
         it records that you paid.
       </Text>
 
-      {error !== undefined && (
+      {shownError !== undefined && (
         <Text variant="caption" tone="negative">
-          {error}
+          {shownError}
         </Text>
       )}
 
