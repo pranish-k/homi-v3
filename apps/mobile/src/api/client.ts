@@ -1,3 +1,5 @@
+import { Platform } from 'react-native';
+
 import { authClient } from '@/auth/client';
 import { API_BASE } from './config';
 
@@ -7,7 +9,14 @@ import { API_BASE } from './config';
  * has no shared cookie jar with SecureStore, so the session cookie the
  * Expo plugin persisted is attached by hand on every request - the same
  * cookie the auth client sends, read through its `getCookie` action.
+ *
+ * On web there is no SecureStore (its web module is empty, so `getCookie`
+ * throws) and a browser drops a hand-set Cookie header anyway: the
+ * browser's own cookie jar holds the session there, so it is sent with
+ * `credentials` instead.
  */
+const sessionHeaders = (): Record<string, string> =>
+  Platform.OS === 'web' ? {} : { Cookie: authClient.getCookie() };
 
 export class ApiError extends Error {
   constructor(
@@ -55,9 +64,12 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
   try {
     response = await fetch(`${API_BASE}${path}`, {
       ...init,
+      // Web only: native requests stay exactly as they were, carrying the
+      // session solely through the hand-set header.
+      ...(Platform.OS === 'web' ? { credentials: 'include' as const } : {}),
       headers: {
         'Content-Type': 'application/json',
-        Cookie: authClient.getCookie(),
+        ...sessionHeaders(),
         ...init?.headers,
       },
     });
