@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { RefreshControl, StyleSheet, View } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
 
@@ -28,11 +28,26 @@ export default function HomeScreen() {
   const [error, setError] = useState<string | undefined>();
   const [refreshing, setRefreshing] = useState(false);
 
+  /**
+   * Focus, pull-to-refresh, realtime hints, reconnects and foregrounding
+   * all call load, so requests overlap and can resolve out of order. Only
+   * the most recent one may write state; an older response landing last
+   * would put a stale ledger back on screen.
+   */
+  const latest = useRef(0);
   const load = useCallback(() => {
-    setError(undefined);
-    return getSnapshot(house.id).then(setSnapshot, (err: unknown) => {
-      setError(err instanceof Error ? err.message : 'Could not load your house.');
-    });
+    const request = ++latest.current;
+    return getSnapshot(house.id).then(
+      (next) => {
+        if (request !== latest.current) return;
+        setSnapshot(next);
+        setError(undefined);
+      },
+      (err: unknown) => {
+        if (request !== latest.current) return;
+        setError(err instanceof Error ? err.message : 'Could not load your house.');
+      },
+    );
   }, [house.id]);
 
   useFocusEffect(
@@ -55,7 +70,7 @@ export default function HomeScreen() {
         <EmptyState
           title="Could not load your house"
           body={error}
-          action={{ label: 'Try again', onPress: () => void load() }}
+          action={{ label: 'Try again', onPress: refresh, loading: refreshing }}
         />
       </Screen>
     );
@@ -106,6 +121,13 @@ export default function HomeScreen() {
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={colors.textSecondary} />}
     >
       <Text variant="title">{snapshot.house.name}</Text>
+      {/* A failed refresh over data already on screen: say so quietly
+          rather than presenting old numbers as current. */}
+      {error !== undefined && (
+        <Text variant="caption" tone="secondary" style={styles.stale}>
+          Could not refresh, so this may be out of date. Pull down to try again.
+        </Text>
+      )}
 
       {snapshot.actionItems.length > 0 && (
         <View style={styles.actions}>
@@ -212,6 +234,7 @@ export default function HomeScreen() {
 
 const styles = StyleSheet.create({
   actions: { paddingTop: spacing.md },
+  stale: { paddingTop: spacing.xs },
   balance: { paddingTop: spacing.lg, paddingBottom: spacing.lg, gap: spacing.xs },
   rule: { height: StyleSheet.hairlineWidth, marginBottom: spacing.xs },
   event: { paddingVertical: spacing.sm, gap: 2 },
