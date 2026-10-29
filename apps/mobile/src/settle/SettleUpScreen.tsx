@@ -113,13 +113,20 @@ function SettleUpForm({
 
   const openMethodApp = async (chosen: PaymentMethod) => {
     setMethod(chosen);
-    const url = methodLinks[chosen].url;
+    const { url, fallback } = methodLinks[chosen];
     if (url === undefined) return;
     try {
-      if (await Linking.canOpenURL(url)) await Linking.openURL(url);
+      await Linking.openURL(url);
     } catch {
-      // Not having the app installed is not an error worth interrupting
-      // the flow for: recording the payment is the part that matters.
+      // The app's scheme is not handled here (not installed, or no app
+      // at all on web): try its website instead.
+      if (fallback === undefined) return;
+      try {
+        await Linking.openURL(fallback);
+      } catch {
+        // Not reaching the app is not worth interrupting the flow for:
+        // recording the payment is the part that matters.
+      }
     }
   };
 
