@@ -39,6 +39,11 @@ export default function Input({
       )}
       <TextInput
         ref={ref}
+        // The large modes are set at title size, so they take title's
+        // Dynamic Type cap rather than outgrowing the screen they sit on.
+        maxFontSizeMultiplier={
+          code || amount ? typography.title.maxFontSizeMultiplier : undefined
+        }
         placeholderTextColor={colors.textTertiary}
         style={[
           styles.input,
