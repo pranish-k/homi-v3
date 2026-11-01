@@ -41,9 +41,7 @@ export const DISPUTE_WINDOW_HOURS = 72;
  *
  * `fallback` is opened when `url` cannot be: the venmo:// scheme fails
  * when Venmo is not installed, and venmo.com then hands off to the app or
- * the store. The screen tries `openURL` directly rather than gating on
- * `canOpenURL`, which on iOS answers false for any scheme missing from
- * LSApplicationQueriesSchemes (app.json) whether or not the app is there.
+ * the store. The screen just calls `openURL` and falls back on failure.
  */
 type MethodLink = { label: string; url?: string; fallback?: string };
 

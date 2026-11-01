@@ -11,8 +11,7 @@
       "bundleIdentifier": "app.homiapp.mobile",
       "supportsTablet": false,
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false,
-        "LSApplicationQueriesSchemes": ["venmo"]
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
