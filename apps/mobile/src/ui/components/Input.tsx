@@ -1,3 +1,4 @@
+import type { Ref } from 'react';
 import { StyleSheet, TextInput, View, type TextInputProps } from 'react-native';
 
 import { useTheme } from '../ThemeProvider';
@@ -9,9 +10,24 @@ export type InputProps = Omit<TextInputProps, 'style' | 'placeholderTextColor'> 
   error?: string;
   /** Centred, widely tracked digits for the one-time code field. */
   code?: boolean;
+  /**
+   * Centred, large, tabular money entry. Not `code`: its wide tracking is
+   * for reading a one-time code digit by digit, and on an amount it
+   * prints "1 9 . 9 9".
+   */
+  amount?: boolean;
+  /** For a screen that has to move focus itself (React 19 passes ref as a prop). */
+  ref?: Ref<TextInput>;
 };
 
-export default function Input({ label, error, code = false, ...rest }: InputProps) {
+export default function Input({
+  label,
+  error,
+  code = false,
+  amount = false,
+  ref,
+  ...rest
+}: InputProps) {
   const { colors } = useTheme();
 
   return (
@@ -22,6 +38,12 @@ export default function Input({ label, error, code = false, ...rest }: InputProp
         </Text>
       )}
       <TextInput
+        ref={ref}
+        // The large modes are set at title size, so they take title's
+        // Dynamic Type cap rather than outgrowing the screen they sit on.
+        maxFontSizeMultiplier={
+          code || amount ? typography.title.maxFontSizeMultiplier : undefined
+        }
         placeholderTextColor={colors.textTertiary}
         style={[
           styles.input,
@@ -31,6 +53,7 @@ export default function Input({ label, error, code = false, ...rest }: InputProp
             backgroundColor: colors.bg,
           },
           code && styles.code,
+          amount && styles.amount,
         ]}
         {...rest}
       />
@@ -57,6 +80,13 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontSize: typography.title.fontSize,
     letterSpacing: 8,
+    paddingVertical: spacing.lg - 2,
+  },
+  amount: {
+    textAlign: 'center',
+    fontSize: typography.title.fontSize,
+    fontWeight: typography.heading.fontWeight,
+    fontVariant: ['tabular-nums'],
     paddingVertical: spacing.lg - 2,
   },
 });

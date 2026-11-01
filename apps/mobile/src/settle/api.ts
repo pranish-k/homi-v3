@@ -1,0 +1,54 @@
+import { apiPost } from '@/api/client';
+
+/**
+ * HOMI-35: recording a settlement. HOMI records the truth; it does not
+ * move the money (spec M4), so this is a statement that a payment
+ * happened, which the recipient can dispute inside the window.
+ */
+
+export type PaymentMethod = 'venmo' | 'zelle' | 'cash_app' | 'cash' | 'other';
+
+/** The fields the app reads; mirrors the payments row the API returns. */
+export type Payment = {
+  id: string;
+  houseId: string;
+  fromUser: string;
+  toUser: string;
+  amountCents: number;
+  currency: string;
+  method: PaymentMethod | null;
+  status: 'recorded' | 'disputed' | 'resolved';
+  createdAt: string;
+};
+
+/** 201 body of POST /v1/houses/:houseId/payments (apps/api/src/ledger/ledger.service.ts). */
+export type RecordPaymentResponse = { payment: Payment };
+
+export const recordPayment = (
+  houseId: string,
+  input: { toUser: string; amountCents: number; method?: PaymentMethod },
+  idempotencyKey: string,
+) => apiPost<RecordPaymentResponse>(`/v1/houses/${houseId}/payments`, input, idempotencyKey);
+
+/** 72 hours, matching DISPUTE_WINDOW_MS in the API. */
+export const DISPUTE_WINDOW_HOURS = 72;
+
+/**
+ * Where each method sends you. We do not store anyone's payment handle,
+ * so these open the app rather than pre-filling a recipient - the copy in
+ * the UI says so rather than implying HOMI moved anything. Zelle lives
+ * inside banking apps and has no reliable scheme, so it goes to the web.
+ *
+ * `fallback` is opened when `url` cannot be: the venmo:// scheme fails
+ * when Venmo is not installed, and venmo.com then hands off to the app or
+ * the store. The screen just calls `openURL` and falls back on failure.
+ */
+type MethodLink = { label: string; url?: string; fallback?: string };
+
+export const methodLinks: Record<PaymentMethod, MethodLink> = {
+  venmo: { label: 'Venmo', url: 'venmo://paycharge?txn=pay', fallback: 'https://venmo.com/' },
+  cash_app: { label: 'Cash App', url: 'https://cash.app/' },
+  zelle: { label: 'Zelle', url: 'https://www.zellepay.com/' },
+  cash: { label: 'Cash' },
+  other: { label: 'Other' },
+};

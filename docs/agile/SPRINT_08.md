@@ -41,11 +41,44 @@ It is the first thing that makes HOMI act on its own behalf, and it needs the ex
 
 ## Progress log
 
-_(filled as work lands)_
+**2026-08-08, HOMI-33 done - the HOME tab (PR #31, merged `2ac7d1b`):** navigation became real routes.
+`src/app/(tabs)/` now holds `_layout.tsx` (resolves the house once and hands it to every tab through `src/houses/HouseContext.tsx`), `home.tsx`, and `house.tsx`; `/` stays the gate, with `HouseGate` redirecting to `/home`.
+There is deliberately no `(tabs)/index.tsx`, because it collides with `app/index.tsx` at `/`.
+HOME renders action items first as plain rows, then the net position, then per-member balances, then the feed head, per `docs/design/DESIGN_DIRECTION.md` section 7.
+New files: `src/home/HomeScreen.tsx`, `src/houses/snapshot.ts`, `src/houses/feed-copy.ts`, `src/houses/useRealtimeHints.ts`, `src/houses/HouseContext.tsx`, `src/ui/components/Icon.tsx`.
+Ionicons was installed here, as the design doc planned, and the better-auth 1.6.23 pin plus its nested zod survived the install.
+
+**Bug made and caught during HOMI-33, worth remembering:** per-member rows must be read from `balances.pairwise`, never `balances.net`.
+A member's `net` is their standing against the whole house and says nothing about what passes between them and the viewer; only `pairwise` can say "Sarah owes you $25.00".
+The first implementation used `net` and would have shipped confident, wrong numbers.
+
+**2026-08-08, the design system's dark-mode debt (carried from HOMI-36) is paid:** Chrome's `--force-prefers-color-scheme` is ignored in headless, but the DevTools Protocol `Emulation.setEmulatedMedia` works.
+Recipe: `expo export --platform web`, serve it, launch Chrome with `--remote-debugging-port`, drive CDP over Node's global `WebSocket`, and poll for real rendered text before screenshotting - the static export prerenders in light, so a fixed delay captures pre-hydration HTML and misreports the theme.
+
+**2026-08-11, HOMI-34 done - add an expense (PR #32, merged `942eefa`):** amount-first layout, payer defaulting to you, equal split by default with an exact mode, description last and optional.
+The `description` decision went the recommended way: the client sends a default of "Expense" rather than relaxing the server schema, so the ledger stays strict.
+`apiPost` now takes an optional idempotency key and sets the `Idempotency-Key` header; the screen generates the key once per submit, holds it in a ref across retries, and clears it only on success, so a failed attempt retried is the same operation and a double tap cannot post twice.
+Amounts parse digit-wise into integer cents rather than multiplying a float, because `19.99 * 100` is `1998.9999999999998`.
+
+**2026-08-16, the app finally ran natively, and it found three real bugs.** Local iOS builds are still blocked by Xcode 26, but an EAS *simulator* build is not: build with the new `development-simulator` profile, download the `.tar.gz`, `xcrun simctl install`, run `npx expo start --dev-client`, and `xcrun simctl launch`.
+Three defects were visible only on the real runtime and are now fixed: a disabled filled button at 0.4 opacity was the brightest element on the dark-mode screen; "$0.00" printed underneath "You're settled up", restating a state as an amount; and an uncapped body label outgrew the capped display amount at the largest Dynamic Type size, inverting the hierarchy.
+Every one of these was invisible in the web export.
+
+**2026-08-17, HOMI-35 built - settle up (PR #33, CI green, not yet merged):** `src/settle/SettleUpScreen.tsx` and `src/settle/api.ts`, reached from HOME's `settle_up` action row rather than from the tab bar, so the debtor never goes looking for it.
+The amount is pre-filled from what HOME says you owe and stays editable for a part payment; method chips (Venmo, Cash App, Zelle, cash, other) open the payment app through `Linking.canOpenURL` but are never required, because HOMI records the truth and does not move money.
+The idempotency key is held across retries as in HOMI-34, and the copy names the 72-hour dispute window.
 
 ## Next steps
 
-_(filled as work lands)_
+**The verification gap, and the one thing that closes it.** None of the money rendering has been seen with real numbers.
+The test house has a single member, and a solo house is always settled, so `balances.pairwise`, the red/green direction, the explicit `+`/`-` signs, the per-member rows, and the settle-up action item have never drawn a live figure on screen.
+The unblock is one second account: create an invite, sign out, sign in as a plus-alias address, tap the invite.
+The existing $44 grocery expense then splits, and the second account should read "You owe Pranish $22.00" in red, with a member row and a settle-up item that opens the new screen.
+
+Also untested by anyone: double-tap idempotency on add-expense against the live API, the `19.99` float-rounding path end to end, and odd-cent splits where the remainder has to land somewhere.
+
+Then: merge PR #33, decide on the stretch story HOMI-18, and close the sprint.
+Still owed from earlier and not this sprint's work: real app icon and splash artwork (a prerequisite before any tester outside the team), `homi://auth/verify` and `homi://join` on real hardware, and the first TestFlight build of the whole loop, which stays a separate explicit decision.
 
 ## Sprint review notes (filled at close)
 

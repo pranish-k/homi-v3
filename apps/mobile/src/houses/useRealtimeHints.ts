@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { AppState } from 'react-native';
 
 import { API_BASE } from '@/api/config';
 import { authClient } from '@/auth/client';
@@ -15,6 +16,12 @@ import { authClient } from '@/auth/client';
  * The socket is an optimisation, not a dependency: HOME already refetches
  * on focus, so a failed connect degrades to "fresh whenever you look at
  * it" rather than breaking the screen.
+ *
+ * `onHint` therefore means "your copy may be stale", and it also fires
+ * whenever hints could have been missed: on every reconnect after the
+ * first open (anything sent while the socket was down is gone), and when
+ * the app returns to the foreground (the OS may have suspended the socket
+ * without a close, and HOME does not refocus on resume).
  */
 
 const RECONNECT_MIN_MS = 1_000;
@@ -45,6 +52,7 @@ export function useRealtimeHints(houseId: string | undefined, onHint: () => void
     let retryMs = RECONNECT_MIN_MS;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
     let closed = false;
+    let hasOpened = false;
 
     const connect = () => {
       if (closed) return;
@@ -63,6 +71,10 @@ export function useRealtimeHints(houseId: string | undefined, onHint: () => void
 
       socket.onopen = () => {
         retryMs = RECONNECT_MIN_MS;
+        // A reconnect, not the first open: hints sent while the socket was
+        // down were never delivered, so treat the gap as one big hint.
+        if (hasOpened) handler.current();
+        hasOpened = true;
       };
       socket.onmessage = () => {
         // The hint's contents are deliberately ignored: refetch is the
@@ -86,8 +98,22 @@ export function useRealtimeHints(houseId: string | undefined, onHint: () => void
 
     connect();
 
+    const appState = AppState.addEventListener('change', (state) => {
+      if (state !== 'active') return;
+      handler.current();
+      // Back in the foreground with the socket down: reconnect now rather
+      // than waiting out a backoff that grew while the app was asleep.
+      if (socket === undefined && retryTimer !== undefined) {
+        clearTimeout(retryTimer);
+        retryTimer = undefined;
+        retryMs = RECONNECT_MIN_MS;
+        connect();
+      }
+    });
+
     return () => {
       closed = true;
+      appState.remove();
       if (retryTimer !== undefined) clearTimeout(retryTimer);
       // Drop the handler first: a close fired by our own teardown must
       // not schedule a reconnect for a house we are leaving.

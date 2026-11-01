@@ -1,5 +1,7 @@
 import * as Localization from 'expo-localization';
 
+import { parseAmount, parseCents } from './amount';
+
 /**
  * HOMI-36: the one place money becomes a string.
  *
@@ -21,21 +23,20 @@ const basic = (cents: number, currency: string): string => {
   return `${negative ? '-' : ''}${symbol}${whole}.${fraction}`;
 };
 
+/** The device's decimal separator, "." when the runtime cannot say. */
+const decimalSeparator = (): string => Localization.getLocales()[0]?.decimalSeparator ?? '.';
+
 /**
- * "12.5" -> 1250, "12" -> 1200, "" -> undefined.
- *
- * Parsed digit-wise rather than via parseFloat * 100, because 19.99 * 100
- * is 1998.9999999999998 in binary floating point and the ledger stores
- * integer cents (invariant 2). Money must never round-trip through a
- * float on its way in.
+ * A typed total -> positive integer cents, or undefined when the text is
+ * not unambiguously an amount. Accepts "." and the device's own decimal
+ * separator; the strict rules and their tests live in `amount.ts`.
  */
-export function parseAmountToCents(input: string): number | undefined {
-  const cleaned = input.replace(/[^\d.]/g, '');
-  if (cleaned.length === 0) return undefined;
-  const [whole = '', fraction = ''] = cleaned.split('.');
-  const cents = Number(`${whole || '0'}${(fraction + '00').slice(0, 2)}`);
-  return Number.isSafeInteger(cents) && cents > 0 ? cents : undefined;
-}
+export const parseAmountToCents = (input: string): number | undefined =>
+  parseAmount(input, decimalSeparator());
+
+/** As `parseAmountToCents`, but zero is valid: one person's exact share. */
+export const parseShareToCents = (input: string): number | undefined =>
+  parseCents(input, decimalSeparator());
 
 /**
  * 2500 USD -> "$25.00", -2500 USD -> "-$25.00".

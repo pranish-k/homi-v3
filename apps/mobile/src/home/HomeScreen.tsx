@@ -1,9 +1,9 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { RefreshControl, StyleSheet, View } from 'react-native';
-import { useFocusEffect } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 
 import { authClient } from '@/auth/client';
-import { feedLine, relativeTime } from '@/houses/feed-copy';
+import { feedLine, relativeTime, timeLeft } from '@/houses/feed-copy';
 import { getSnapshot, memberName, type Snapshot } from '@/houses/snapshot';
 import { useRealtimeHints } from '@/houses/useRealtimeHints';
 import { useHouse } from '@/houses/HouseContext';
@@ -28,11 +28,26 @@ export default function HomeScreen() {
   const [error, setError] = useState<string | undefined>();
   const [refreshing, setRefreshing] = useState(false);
 
+  /**
+   * Focus, pull-to-refresh, realtime hints, reconnects and foregrounding
+   * all call load, so requests overlap and can resolve out of order. Only
+   * the most recent one may write state; an older response landing last
+   * would put a stale ledger back on screen.
+   */
+  const latest = useRef(0);
   const load = useCallback(() => {
-    setError(undefined);
-    return getSnapshot(house.id).then(setSnapshot, (err: unknown) => {
-      setError(err instanceof Error ? err.message : 'Could not load your house.');
-    });
+    const request = ++latest.current;
+    return getSnapshot(house.id).then(
+      (next) => {
+        if (request !== latest.current) return;
+        setSnapshot(next);
+        setError(undefined);
+      },
+      (err: unknown) => {
+        if (request !== latest.current) return;
+        setError(err instanceof Error ? err.message : 'Could not load your house.');
+      },
+    );
   }, [house.id]);
 
   useFocusEffect(
@@ -55,7 +70,7 @@ export default function HomeScreen() {
         <EmptyState
           title="Could not load your house"
           body={error}
-          action={{ label: 'Try again', onPress: () => void load() }}
+          action={{ label: 'Try again', onPress: refresh, loading: refreshing }}
         />
       </Screen>
     );
@@ -85,8 +100,19 @@ export default function HomeScreen() {
     else if (p.to === viewerId) between.set(p.from, p.amountCents);
   }
 
-  // Positive net means the house owes the viewer.
-  const netLabel = net > 0 ? 'You are owed' : net < 0 ? 'You owe' : "You're settled up";
+  // Positive net means the house owes the viewer. A zero net is only
+  // "settled up" when nothing is open with anyone: owing one roommate
+  // exactly what another owes you nets to zero, and "You're settled up"
+  // under a "Pay Sam $3.33" row contradicts the screen it sits on.
+  const hasOpenBalances = [...between.values()].some((cents) => cents !== 0);
+  const netLabel =
+    net > 0
+      ? 'You are owed'
+      : net < 0
+        ? 'You owe'
+        : hasOpenBalances
+          ? "You're even overall"
+          : "You're settled up";
 
   return (
     <Screen
@@ -95,6 +121,13 @@ export default function HomeScreen() {
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={colors.textSecondary} />}
     >
       <Text variant="title">{snapshot.house.name}</Text>
+      {/* A failed refresh over data already on screen: say so quietly
+          rather than presenting old numbers as current. */}
+      {error !== undefined && (
+        <Text variant="caption" tone="secondary" style={styles.stale}>
+          Could not refresh, so this may be out of date. Pull down to try again.
+        </Text>
+      )}
 
       {snapshot.actionItems.length > 0 && (
         <View style={styles.actions}>
@@ -105,17 +138,27 @@ export default function HomeScreen() {
                 <Row
                   key={`settle-${item.toUserId}`}
                   label={`Pay ${memberName(to)}`}
+                  detail="Tap to settle up"
                   value={<Money cents={item.amountCents} currency={currency} />}
+                  // HOMI-35: the action item is the way into settle-up, so
+                  // the debtor never has to go looking for it (M3/M4).
+                  onPress={() =>
+                    router.navigate({
+                      pathname: '/settle',
+                      params: { to: item.toUserId, amount: String(item.amountCents) },
+                    })
+                  }
                   divider={false}
                 />
               );
             }
             const from = snapshot.members.find((m) => m.userId === item.fromUserId);
+            const left = timeLeft(item.disputableUntil);
             return (
               <Row
                 key={`confirm-${item.paymentId}`}
                 label={`${memberName(from)} says they paid you`}
-                detail={`You can dispute this until ${new Date(item.disputableUntil).toLocaleDateString()}`}
+                detail={left === undefined ? undefined : `You can dispute this for ${left}`}
                 value={<Money cents={item.amountCents} currency={currency} />}
                 divider={false}
               />
@@ -191,6 +234,7 @@ export default function HomeScreen() {
 
 const styles = StyleSheet.create({
   actions: { paddingTop: spacing.md },
+  stale: { paddingTop: spacing.xs },
   balance: { paddingTop: spacing.lg, paddingBottom: spacing.lg, gap: spacing.xs },
   rule: { height: StyleSheet.hairlineWidth, marginBottom: spacing.xs },
   event: { paddingVertical: spacing.sm, gap: 2 },

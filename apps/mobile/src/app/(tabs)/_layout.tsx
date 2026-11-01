@@ -82,6 +82,9 @@ export default function TabsLayout() {
             ),
           }}
         />
+        {/* Reached from a HOME action item, not the tab bar, but it lives
+            inside this group so it inherits the house from HouseProvider. */}
+        <Tabs.Screen name="settle" options={{ href: null }} />
         <Tabs.Screen
           name="house"
           options={{

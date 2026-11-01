@@ -52,7 +52,10 @@ describe('placeholder roommates (HOMI-9)', () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
     app = moduleRef.createNestApplication(undefined, { bodyParser: false });
     setupApp(app);
-    await app.init();
+    // Listen once: handed an unbound server, supertest listen()s and close()s
+    // that SAME server per request, so parallel requests (Promise.all races)
+    // intermittently die with ECONNRESET when a sibling closes it.
+    await app.listen(0);
     http = app.getHttpServer();
     pool = app.get<Pool>(PG_POOL);
 
